@@ -14,6 +14,11 @@ def test_sanitize_filename_special_chars():
     assert sanitize_filename(name) == 'Hello_Case_Name_'
 
 
+def test_sanitize_filename_with_spaces():
+    name = 'A Case Name'
+    assert sanitize_filename(name) == 'A Case Name'
+
+
 def test_case_searcher_pagination():
     mock_client = MagicMock()
     first_resp = MagicMock()
