@@ -21,11 +21,13 @@ def test_case_searcher_pagination():
         'results': [{'id': 1, 'url': '/case/1'}],
         'next': '/search/?page=2'
     }
+    first_resp.content = b'{}'
     second_resp = MagicMock()
     second_resp.json.return_value = {
         'results': [{'id': 2, 'url': '/case/2'}],
         'next': None
     }
+    second_resp.content = b'{}'
     mock_client.get.side_effect = [first_resp, second_resp]
     searcher = CaseSearcher(mock_client)
     results = list(searcher.search('keyword'))
@@ -39,7 +41,9 @@ def test_case_searcher_pagination():
 def test_api_client_retry(monkeypatch):
     responses = []
     first = MagicMock(status_code=429, headers={'Retry-After': '0'})
+    first.content = b''
     second = MagicMock(status_code=200)
+    second.content = b''
     responses.extend([first, second])
 
     def fake_get(url, headers=None, params=None):
@@ -58,6 +62,7 @@ def test_case_downloader_download():
     mock_client = MagicMock()
     response = MagicMock()
     response.json.return_value = {'foo': 'bar'}
+    response.content = b'{}'
     mock_client.get.return_value = response
     downloader = CaseDownloader(mock_client)
     result = downloader.download('/case/1')
