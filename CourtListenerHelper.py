@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
-"""
-Download multiple court cases by keyword using CourtListener REST API (v4).
-Design follows SOLID principles: each class has a single responsibility.
+"""CourtListener Helper.
+
+This module provides utilities to search for cases on the CourtListener REST
+API and download their full contents to a directory chosen by the user.  The
+code is organised around small classes that each focus on a single
+responsibility following the SOLID principles.  It can be used either from the
+command line via :class:`CommandLineInterface` or programmatically via the
+``main`` function.
 """
 
 import argparse
@@ -38,11 +43,13 @@ class ApiClient:
         params: Optional[Dict] = None,
         max_retries: int = 3,
     ) -> requests.Response:
+        """Perform a GET request with basic retry and metric collection."""
         if params is None:
             params = {}
         url = f"{self.base_url}{path}"
         retries = 0
         while True:
+            # Measure duration so we can record API timing metrics
             start = time.time()
             resp = requests.get(url, headers=self.headers, params=params)
             elapsed = time.time() - start
@@ -50,6 +57,7 @@ class ApiClient:
             self.metrics["total_bytes"] += len(resp.content)
             self.metrics["total_time"] += elapsed
             if resp.status_code == 429 and retries < max_retries:
+                # Respect server rate limiting and retry after the suggested delay
                 wait = int(resp.headers.get("Retry-After", 60))
                 logger.warning(
                     "Rate limited, retrying after %s seconds...", wait
@@ -73,6 +81,7 @@ class CaseSearcher:
         self.page_size = page_size
 
     def search(self, keyword: str) -> Generator[Dict, None, None]:
+        """Yield search results for ``keyword`` one page at a time."""
         path = "/search/"
         params = {
             "q": keyword,
@@ -82,8 +91,10 @@ class CaseSearcher:
         next_url = None
         while True:
             if next_url:
+                # Follow pagination links returned by the API
                 resp = self.client.get(next_url, params={})
             else:
+                # First page of results
                 resp = self.client.get(path, params=params)
             js = resp.json()
             for result in js.get("results", []):
@@ -99,6 +110,7 @@ class CaseDownloader:
         self.client = client
 
     def download(self, case_url: str) -> Dict:
+        """Return the JSON for a single case from its API URL."""
         resp = self.client.get(case_url)
         return resp.json()
 
@@ -124,6 +136,7 @@ class CommandLineInterface:
         )
 
     def run(self, argv: Optional[List[str]] = None) -> None:
+        """Parse ``argv`` and download cases using the provided client."""
         args = self.parser.parse_args(argv)
         searcher = CaseSearcher(self.client)
         downloader = CaseDownloader(self.client)
@@ -131,7 +144,7 @@ class CommandLineInterface:
 
 
 def sanitize_filename(name: str) -> str:
-    """Return a filesystem-safe version of the given name."""
+    """Return a filesystem-safe version of ``name`` suitable for saving files."""
     return "".join(c if c.isalnum() or c in " _-" else "_" for c in name)
 
 
@@ -143,6 +156,7 @@ def main(
     searcher: Optional[CaseSearcher] = None,
     downloader: Optional[CaseDownloader] = None,
 ):
+    """Download all cases matching ``keywords`` into ``out_dir``."""
     os.makedirs(out_dir, exist_ok=True)
     if searcher is None or downloader is None:
         client = ApiClient(API_BASE, TOKEN)
@@ -153,6 +167,7 @@ def main(
 
     for keyword in keywords:
         logger.info("\U0001F50D Searching cases for '%s' …", keyword)
+        # Iterate over all pages of search results
         for case_meta in searcher.search(keyword):
             case_id = case_meta["id"]
             case_url = case_meta["url"]
@@ -160,6 +175,7 @@ def main(
             safe_name = sanitize_filename(case_name)
             filename = os.path.join(out_dir, f"{safe_name}_{case_id}.json")
             if os.path.exists(filename):
+                # Avoid re-downloading cases we already saved
                 logger.info("\u2705 Skipping existing %s", filename)
                 continue
             logger.info("\u2B07\uFE0F  Downloading case '%s' …", case_name)
@@ -167,6 +183,7 @@ def main(
             with open(filename, "w", encoding="utf-8") as f:
                 import json
                 json.dump(full_case, f, indent=2)
+            # Slight delay to avoid hitting API rate limits aggressively
             time.sleep(0.1)
 
 

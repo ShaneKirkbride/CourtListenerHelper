@@ -18,6 +18,7 @@ class GuiApplication:
     """Simple Tkinter GUI for CourtListenerHelper."""
 
     def __init__(self, root: tk.Tk) -> None:
+        """Initialise widgets and API helpers."""
         self.root = root
         self.root.title("CourtListener Helper")
         self.client = ApiClient(API_BASE, TOKEN or "")
@@ -45,12 +46,14 @@ class GuiApplication:
         self.log.pack(fill="both", expand=True, padx=5, pady=5)
 
     def browse(self) -> None:
+        """Ask the user for an output directory."""
         directory = filedialog.askdirectory()
         if directory:
             self.out_entry.delete(0, tk.END)
             self.out_entry.insert(0, directory)
 
     def start(self) -> None:
+        """Kick off the download in a background thread."""
         keywords = [k.strip() for k in self.keyword_entry.get().split(",") if k.strip()]
         out_dir = self.out_entry.get() or "cases"
         if not keywords:
@@ -62,12 +65,14 @@ class GuiApplication:
         threading.Thread(target=self.download_cases, args=(keywords, out_dir), daemon=True).start()
 
     def log_message(self, msg: str) -> None:
+        """Append a message to the log textbox."""
         self.log.configure(state="normal")
         self.log.insert(tk.END, msg + "\n")
         self.log.configure(state="disabled")
         self.log.see(tk.END)
 
     def download_cases(self, keywords: List[str], out_dir: str) -> None:
+        """Perform the actual search and download operations."""
         total = 0
         for kw in keywords:
             self.log_message(f"Searching cases for '{kw}' ...")
@@ -91,6 +96,7 @@ class GuiApplication:
 
 
 def run() -> None:
+    """Entry point for launching the GUI application."""
     root = tk.Tk()
     GuiApplication(root)
     root.mainloop()
