@@ -26,6 +26,11 @@ class ApiClient:
         self.headers = {
             "Authorization": f"Token {token}"
         }
+        self.metrics = {
+            "call_count": 0,
+            "total_bytes": 0,
+            "total_time": 0.0,
+        }
 
     def get(
         self,
@@ -38,7 +43,12 @@ class ApiClient:
         url = f"{self.base_url}{path}"
         retries = 0
         while True:
+            start = time.time()
             resp = requests.get(url, headers=self.headers, params=params)
+            elapsed = time.time() - start
+            self.metrics["call_count"] += 1
+            self.metrics["total_bytes"] += len(resp.content)
+            self.metrics["total_time"] += elapsed
             if resp.status_code == 429 and retries < max_retries:
                 wait = int(resp.headers.get("Retry-After", 60))
                 logger.warning(
@@ -50,6 +60,10 @@ class ApiClient:
             break
         resp.raise_for_status()
         return resp
+
+    def get_metrics(self) -> Dict[str, float]:
+        """Return collected metrics."""
+        return dict(self.metrics)
 
 
 class CaseSearcher:
