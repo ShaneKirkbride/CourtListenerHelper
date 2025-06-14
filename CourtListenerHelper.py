@@ -4,6 +4,7 @@ Download multiple court cases by keyword using CourtListener REST API (v4).
 Design follows SOLID principles: each class has a single responsibility.
 """
 
+import argparse
 import requests
 import time
 import os
@@ -88,6 +89,33 @@ class CaseDownloader:
         return resp.json()
 
 
+class CommandLineInterface:
+    """Handle command-line argument parsing and app execution."""
+
+    def __init__(self, client: ApiClient):
+        self.client = client
+        self.parser = argparse.ArgumentParser(
+            description="Download cases from CourtListener by keyword"
+        )
+        self.parser.add_argument(
+            "keywords",
+            nargs="+",
+            help="Keywords to search for",
+        )
+        self.parser.add_argument(
+            "-o",
+            "--output",
+            default="cases",
+            help="Directory to store downloaded cases",
+        )
+
+    def run(self, argv: Optional[List[str]] = None) -> None:
+        args = self.parser.parse_args(argv)
+        searcher = CaseSearcher(self.client)
+        downloader = CaseDownloader(self.client)
+        main(args.keywords, args.output, searcher, downloader)
+
+
 def sanitize_filename(name: str) -> str:
     """Return a filesystem-safe version of the given name."""
     return "".join(c if c.isalnum() or c in " _-" else "_" for c in name)
@@ -95,11 +123,19 @@ def sanitize_filename(name: str) -> str:
 
 # === Example Use ===
 
-def main(keywords: List[str], out_dir: str = "cases"):
+def main(
+    keywords: List[str],
+    out_dir: str = "cases",
+    searcher: Optional[CaseSearcher] = None,
+    downloader: Optional[CaseDownloader] = None,
+):
     os.makedirs(out_dir, exist_ok=True)
-    client = ApiClient(API_BASE, TOKEN)
-    searcher = CaseSearcher(client)
-    downloader = CaseDownloader(client)
+    if searcher is None or downloader is None:
+        client = ApiClient(API_BASE, TOKEN)
+        if searcher is None:
+            searcher = CaseSearcher(client)
+        if downloader is None:
+            downloader = CaseDownloader(client)
 
     for keyword in keywords:
         logger.info("\U0001F50D Searching cases for '%s' …", keyword)
@@ -122,10 +158,8 @@ def main(keywords: List[str], out_dir: str = "cases"):
 
 if __name__ == "__main__":
     import sys
-    if not TOKEN:
+    if not TOKEN and not any(f in sys.argv for f in ("-h", "--help")):
         logger.error("\u274C Set COURTLISTENER_TOKEN env var.")
         sys.exit(1)
-    if len(sys.argv) < 2:
-        logger.info("Usage: script.py keyword1 keyword2 …")
-        sys.exit(1)
-    main(sys.argv[1:])
+    cli = CommandLineInterface(ApiClient(API_BASE, TOKEN or ""))
+    cli.run(sys.argv[1:])
