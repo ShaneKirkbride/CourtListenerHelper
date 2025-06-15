@@ -31,13 +31,13 @@ def test_case_searcher_pagination():
     mock_client = MagicMock()
     first_resp = MagicMock()
     first_resp.json.return_value = {
-        'results': [{'id': 1, 'url': '/case/1'}],
+        'results': [{'id': 1, 'url': '/case/1', 'name': 'Keyword Case'}],
         'next': '/search/?page=2'
     }
     first_resp.content = b'{}'
     second_resp = MagicMock()
     second_resp.json.return_value = {
-        'results': [{'id': 2, 'url': '/case/2'}],
+        'results': [{'id': 2, 'url': '/case/2', 'name': 'Another keyword'}],
         'next': None
     }
     second_resp.content = b'{}'
@@ -45,8 +45,8 @@ def test_case_searcher_pagination():
     searcher = CaseSearcher(mock_client)
     results = list(searcher.search('keyword'))
     assert results == [
-        {'id': 1, 'url': '/case/1'},
-        {'id': 2, 'url': '/case/2'},
+        {'id': 1, 'url': '/case/1', 'name': 'Keyword Case'},
+        {'id': 2, 'url': '/case/2', 'name': 'Another keyword'},
     ]
     assert mock_client.get.call_count == 2
 
@@ -55,13 +55,13 @@ def test_case_searcher_pagination_absolute_next():
     mock_client = MagicMock()
     first = MagicMock()
     first.json.return_value = {
-        'results': [{'id': 1, 'url': '/case/1'}],
+        'results': [{'id': 1, 'url': '/case/1', 'name': 'kw first'}],
         'next': 'https://example.com/api/search/?page=2'
     }
     first.content = b'{}'
     second = MagicMock()
     second.json.return_value = {
-        'results': [{'id': 2, 'url': '/case/2'}],
+        'results': [{'id': 2, 'url': '/case/2', 'name': 'KW second'}],
         'next': None
     }
     second.content = b'{}'
@@ -69,30 +69,54 @@ def test_case_searcher_pagination_absolute_next():
     searcher = CaseSearcher(mock_client)
     results = list(searcher.search('kw'))
     assert results == [
-        {'id': 1, 'url': '/case/1'},
-        {'id': 2, 'url': '/case/2'},
+        {'id': 1, 'url': '/case/1', 'name': 'kw first'},
+        {'id': 2, 'url': '/case/2', 'name': 'KW second'},
     ]
     assert mock_client.get.call_count == 2
 
 
-def test_api_client_retry(monkeypatch):
-    responses = []
-    first = MagicMock(status_code=429, headers={'Retry-After': '0'})
-    first.content = b''
-    second = MagicMock(status_code=200)
-    second.content = b''
-    responses.extend([first, second])
+def test_case_searcher_keyword_filter_excludes_non_matching():
+    mock_client = MagicMock()
+    resp = MagicMock()
+    resp.json.return_value = {
+        'results': [{'id': 3, 'url': '/case/3', 'name': 'other case'}],
+        'next': None
+    }
+    resp.content = b'{}'
+    mock_client.get.return_value = resp
+    searcher = CaseSearcher(mock_client)
+    results = list(searcher.search('target'))
+    assert results == []
+    mock_client.get.assert_called_once()
 
-    def fake_get(url, headers=None, params=None):
-        return responses.pop(0)
+
+def test_case_searcher_accepts_jurisdiction_list():
+    mock_client = MagicMock()
+    resp = MagicMock()
+    resp.json.return_value = {'results': [], 'next': None}
+    resp.content = b'{}'
+    mock_client.get.return_value = resp
+    searcher = CaseSearcher(mock_client)
+    list(searcher.search('foo', jurisdictions=['a', 'b']))
+    args, kwargs = mock_client.get.call_args
+    assert kwargs['params']['jurisdiction'] == 'a,b'
+
+
+def test_api_client_retry(monkeypatch):
+    response = MagicMock(status_code=200)
+    response.content = b"{}"
+
+    def fake_get(self, url, headers=None, params=None, timeout=None, stream=False):
+        return response
 
     import requests
-    monkeypatch.setattr(requests, 'get', fake_get)
+    monkeypatch.setattr(requests.Session, 'get', fake_get)
 
     client = ApiClient('http://example.com', 't')
     resp = client.get('/path')
-    assert resp.status_code == 200
-    assert len(responses) == 0
+    assert resp is response
+    assert client.metrics['call_count'] == 1
+    assert client.metrics['total_bytes'] == len(b"{}")
 
 
 def test_case_downloader_download():
@@ -102,8 +126,14 @@ def test_case_downloader_download():
     response.content = b'{}'
     mock_client.get.return_value = response
     downloader = CaseDownloader(mock_client)
+    downloader._extract_pdf = MagicMock(return_value=None)
+    downloader._fetch_opinions = MagicMock(return_value=[])
     result = downloader.download('/case/1')
-    assert result == {'foo': 'bar'}
+    assert result == {
+        'metadata': {'foo': 'bar'},
+        'pdf_bytes': None,
+        'opinions': []
+    }
     mock_client.get.assert_called_with('/case/1')
 
 
@@ -114,25 +144,29 @@ def test_case_downloader_absolute_url():
     response.content = b'{}'
     mock_client.get.return_value = response
     downloader = CaseDownloader(mock_client)
+    downloader._extract_pdf = MagicMock(return_value=None)
+    downloader._fetch_opinions = MagicMock(return_value=[])
     url = 'https://example.com/api/case/1'
     result = downloader.download(url)
-    assert result == {'foo': 'bar'}
+    assert result == {
+        'metadata': {'foo': 'bar'},
+        'pdf_bytes': None,
+        'opinions': []
+    }
     mock_client.get.assert_called_with(url)
 
 
 def test_api_client_absolute_path(monkeypatch):
     called = {}
 
-    def fake_get(url, headers=None, params=None):
+    def fake_get(url, headers=None, params=None, timeout=None, stream=False):
         called['url'] = url
         response = MagicMock(status_code=200)
         response.content = b''
         return response
 
-    import requests
-    monkeypatch.setattr(requests, 'get', fake_get)
-
     client = ApiClient('http://example.com', 't')
+    monkeypatch.setattr(client.session, 'get', fake_get)
     client.get('https://foo.com/bar')
     assert called['url'] == 'https://foo.com/bar'
 
@@ -188,7 +222,11 @@ def test_gui_download_cases_handles_cluster_id(tmp_path):
     dummy.searcher.search.return_value = [
         {"cluster_id": 99, "url": "/case/99", "name": "Cluster Case"}
     ]
-    dummy.downloader.download.return_value = {"cluster_id": 99, "download_url": "http://example.com/99.pdf"}
+    dummy.downloader.download.return_value = {
+        "metadata": {"cluster_id": 99, "download_url": "http://example.com/99.pdf"},
+        "pdf_bytes": b"pdf",
+        "opinions": [],
+    }
     dummy.downloader.download_pdf.return_value = b"pdf"
 
     out_dir = tmp_path / "cases"
