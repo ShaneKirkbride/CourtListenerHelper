@@ -2,7 +2,13 @@ import types
 import pytest
 from unittest.mock import MagicMock
 
-from CourtListenerHelper import sanitize_filename, ApiClient, CaseSearcher, CaseDownloader
+from CourtListenerHelper import (
+    sanitize_filename,
+    ApiClient,
+    CaseSearcher,
+    CaseDownloader,
+    get_case_id,
+)
 
 
 def test_sanitize_filename_simple():
@@ -73,4 +79,13 @@ def test_case_downloader_download():
     result = downloader.download('/case/1')
     assert result == {'foo': 'bar'}
     mock_client.get.assert_called_with('/case/1')
+
+
+def test_get_case_id_variants():
+    meta = {'id': 1, 'cluster_id': 2, 'docket_id': 3}
+    assert get_case_id(meta) == '1'
+    meta = {'cluster_id': 2, 'docket_id': 3}
+    assert get_case_id(meta) == '2'
+    meta = {'docket_id': 3}
+    assert get_case_id(meta) == '3'
 

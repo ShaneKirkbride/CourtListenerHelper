@@ -143,6 +143,19 @@ class CommandLineInterface:
         main(args.keywords, args.output, searcher, downloader)
 
 
+def get_case_id(meta: Dict) -> str:
+    """Return a stable identifier from case metadata.
+
+    The CourtListener search API may provide different identifier fields. This
+    helper checks common keys in priority order and returns the first one
+    found. A ``KeyError`` is raised if no suitable identifier exists.
+    """
+    for key in ("id", "cluster_id", "docket_id"):
+        if key in meta:
+            return str(meta[key])
+    raise KeyError("No case identifier found in metadata")
+
+
 def sanitize_filename(name: str) -> str:
     """Return a filesystem-safe version of ``name`` suitable for saving files."""
     return "".join(c if c.isalnum() or c in " _-" else "_" for c in name)
@@ -169,7 +182,7 @@ def main(
         logger.info("\U0001F50D Searching cases for '%s' …", keyword)
         # Iterate over all pages of search results
         for case_meta in searcher.search(keyword):
-            case_id = case_meta["id"]
+            case_id = get_case_id(case_meta)
             case_url = case_meta["url"]
             case_name = case_meta.get("name", f"case_{case_id}")
             safe_name = sanitize_filename(case_name)
