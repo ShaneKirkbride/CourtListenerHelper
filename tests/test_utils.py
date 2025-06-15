@@ -200,3 +200,102 @@ def test_gui_download_cases_handles_cluster_id(tmp_path):
     expected_pdf = out_dir / "Cluster Case_99.pdf"
     assert expected_pdf.exists()
 
+
+def test_recap_downloader_get_entries_filters():
+    from CourtListenerHelper import RecapDownloader
+
+    client = MagicMock()
+    resp = MagicMock()
+    resp.json.return_value = {
+        'results': [
+            {'id': 1, 'recap_document': 10},
+            {'id': 2}
+        ]
+    }
+    resp.content = b'{}'
+    client.get.return_value = resp
+
+    rd = RecapDownloader(client, 'u', 'p')
+    entries = rd.get_recap_entries(5)
+
+    assert entries == [{'id': 1, 'recap_document': 10}]
+    client.get.assert_called_with('/dockets/5/entries/')
+
+
+def test_recap_downloader_request_pdf():
+    from CourtListenerHelper import RecapDownloader
+
+    client = MagicMock()
+    resp = MagicMock()
+    resp.json.return_value = {'ok': True}
+    resp.content = b'{}'
+    client.post.return_value = resp
+
+    rd = RecapDownloader(client, 'user', 'pass')
+    result = rd.request_pdf(123)
+
+    assert result == {'ok': True}
+    client.post.assert_called_with(
+        '/recap-fetch/',
+        data={
+            'request_type': '2',
+            'recap_document': '123',
+            'pacer_username': 'user',
+            'pacer_password': 'pass',
+        },
+    )
+
+
+def test_recap_downloader_poll_entry():
+    from CourtListenerHelper import RecapDownloader
+
+    client = MagicMock()
+    first = MagicMock()
+    first.json.return_value = {'file': {}}
+    first.content = b'{}'
+    second = MagicMock()
+    second.json.return_value = {'file': {'url': 'http://pdf'}}
+    second.content = b'{}'
+    client.get.side_effect = [first, second]
+
+    rd = RecapDownloader(client, 'u', 'p')
+    url = rd.poll_entry(7, interval=0, timeout=1)
+
+    assert url == 'http://pdf'
+    assert client.get.call_count == 2
+
+
+def test_recap_downloader_fetch_first_pdf():
+    from CourtListenerHelper import RecapDownloader
+
+    rd = RecapDownloader(MagicMock(), 'u', 'p')
+    rd.get_recap_entries = MagicMock(return_value=[{'id': 1, 'recap_document': 2}])
+    rd.request_pdf = MagicMock()
+    rd.poll_entry = MagicMock(return_value='http://pdf')
+    rd.download_pdf = MagicMock(return_value=b'pdf')
+
+    data = rd.fetch_first_pdf(99)
+
+    assert data == b'pdf'
+    rd.request_pdf.assert_called_with(2)
+    rd.poll_entry.assert_called_with(1)
+    rd.download_pdf.assert_called_with('http://pdf')
+
+
+def test_api_client_post_records_metrics(monkeypatch):
+    from CourtListenerHelper import ApiClient
+    import requests
+
+    def fake_post(url, headers=None, data=None):
+        resp = MagicMock(status_code=200)
+        resp.content = b'foo'
+        return resp
+
+    monkeypatch.setattr(requests, 'post', fake_post)
+
+    client = ApiClient('http://example.com', 't')
+    client.post('/path', data={'a': 1})
+
+    assert client.metrics['call_count'] == 1
+    assert client.metrics['total_bytes'] == len(b'foo')
+

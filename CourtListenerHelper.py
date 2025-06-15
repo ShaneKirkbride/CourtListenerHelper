@@ -73,6 +73,24 @@ class ApiClient:
         resp.raise_for_status()
         return resp
 
+    def post(
+        self,
+        path: str,
+        data: Optional[Dict] = None,
+    ) -> requests.Response:
+        """Perform a POST request and record metrics."""
+        if data is None:
+            data = {}
+        url = path if path.startswith("http") else f"{self.base_url}{path}"
+        start = time.time()
+        resp = requests.post(url, headers=self.headers, data=data)
+        elapsed = time.time() - start
+        self.metrics["call_count"] += 1
+        self.metrics["total_bytes"] += len(resp.content)
+        self.metrics["total_time"] += elapsed
+        resp.raise_for_status()
+        return resp
+
     def get_metrics(self) -> Dict[str, float]:
         """Return collected metrics."""
         return dict(self.metrics)
@@ -122,6 +140,60 @@ class CaseDownloader:
         """Return the raw PDF bytes for the provided ``pdf_url``."""
         resp = self.client.get(pdf_url)
         return resp.content
+
+
+class RecapDownloader:
+    """Download docket PDFs via the RECAP fetch endpoint."""
+
+    def __init__(self, client: ApiClient, pacer_user: str, pacer_pass: str):
+        self.client = client
+        self.pacer_user = pacer_user
+        self.pacer_pass = pacer_pass
+
+    def get_recap_entries(self, docket_id: int) -> List[Dict]:
+        """Return docket entries that have a RECAP document."""
+        resp = self.client.get(f"/dockets/{docket_id}/entries/")
+        entries = resp.json().get("results", [])
+        return [e for e in entries if e.get("recap_document")]
+
+    def request_pdf(self, recap_doc_id: int) -> Dict:
+        """Request the PDF for ``recap_doc_id`` via the fetch endpoint."""
+        data = {
+            "request_type": "2",
+            "recap_document": str(recap_doc_id),
+            "pacer_username": self.pacer_user,
+            "pacer_password": self.pacer_pass,
+        }
+        resp = self.client.post("/recap-fetch/", data=data)
+        return resp.json()
+
+    def poll_entry(self, entry_id: int, interval: int = 5, timeout: int = 300) -> str:
+        """Poll until the docket entry file URL is available."""
+        elapsed = 0
+        while elapsed < timeout:
+            resp = self.client.get(f"/docket-entries/{entry_id}/")
+            entry = resp.json()
+            url = entry.get("file", {}).get("url")
+            if url:
+                return url
+            time.sleep(interval)
+            elapsed += interval
+        raise TimeoutError("PDF not ready within timeout")
+
+    def download_pdf(self, url: str) -> bytes:
+        """Return the PDF bytes at ``url``."""
+        resp = self.client.get(url)
+        return resp.content
+
+    def fetch_first_pdf(self, docket_id: int) -> bytes:
+        """Fetch the first available RECAP PDF for the docket."""
+        entries = self.get_recap_entries(docket_id)
+        if not entries:
+            raise ValueError("No RECAP documents found")
+        entry = entries[0]
+        self.request_pdf(entry["recap_document"])
+        url = self.poll_entry(entry["id"])
+        return self.download_pdf(url)
 
 
 class CommandLineInterface:
