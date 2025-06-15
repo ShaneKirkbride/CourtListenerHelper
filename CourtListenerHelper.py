@@ -46,7 +46,10 @@ class ApiClient:
         """Perform a GET request with basic retry and metric collection."""
         if params is None:
             params = {}
-        url = f"{self.base_url}{path}"
+        if path.startswith("http"):
+            url = path
+        else:
+            url = f"{self.base_url}{path}"
         retries = 0
         while True:
             # Measure duration so we can record API timing metrics
@@ -168,11 +171,14 @@ def get_case_url(meta: Dict) -> str:
         return meta["url"]
     if "resource_uri" in meta:
         return meta["resource_uri"]
+    if "cluster_id" in meta:
+        return f"/clusters/{meta['cluster_id']}/"
     if "absolute_url" in meta:
         url = meta["absolute_url"]
-        if url.startswith("http"):
+        if url.startswith("/api/"):
             return url
-        return f"{API_BASE}{url}" if not url.startswith("/api") else url
+        if url.startswith("http") and "/api/" in url:
+            return url
     raise KeyError("No case URL found in metadata")
 
 
