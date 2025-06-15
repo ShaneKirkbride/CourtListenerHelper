@@ -11,6 +11,7 @@ front ends.
 - Search the CourtListener API by keyword
 - Download full case metadata in JSON format
 - Download the associated opinion PDF when available
+- Retrieve docket PDFs via the RECAP system
 - Command line and graphical interfaces
 - Lightweight API metrics (call count, bytes and elapsed time)
 - 100% unit test coverage
@@ -60,7 +61,7 @@ All tests should pass without network access because requests are mocked.
 ## Project Structure
 
 - `CourtListenerHelper.py` – core implementation with API client, searcher,
-  downloader and CLI classes
+  downloader, RECAP helper and CLI classes
 - `gui.py` – simple Tkinter GUI wrapper around the same components
 - `tests/` – `pytest` unit tests
 
