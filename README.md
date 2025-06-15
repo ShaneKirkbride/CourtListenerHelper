@@ -10,6 +10,7 @@ front ends.
 
 - Search the CourtListener API by keyword
 - Download full case metadata in JSON format
+- Download the associated opinion PDF when available
 - Command line and graphical interfaces
 - Lightweight API metrics (call count, bytes and elapsed time)
 - 100% unit test coverage
