@@ -89,3 +89,38 @@ def test_get_case_id_variants():
     meta = {'docket_id': 3}
     assert get_case_id(meta) == '3'
 
+
+def test_gui_download_cases_handles_cluster_id(tmp_path):
+    """GuiApplication should fall back to alternate IDs when 'id' is missing."""
+    from gui import GuiApplication
+
+    dummy = types.SimpleNamespace()
+    dummy.client = MagicMock()
+    dummy.client.get_metrics.return_value = {
+        'call_count': 1,
+        'total_bytes': 1,
+        'total_time': 0,
+    }
+    dummy.searcher = MagicMock()
+    dummy.downloader = MagicMock()
+    dummy.progress = types.SimpleNamespace(step=lambda n: None)
+    dummy.start_button = types.SimpleNamespace(config=lambda **kw: None)
+    dummy.log_messages = []
+
+    def log(msg):
+        dummy.log_messages.append(msg)
+
+    dummy.log_message = log
+
+    dummy.searcher.search.return_value = [
+        {"cluster_id": 99, "url": "/case/99", "name": "Cluster Case"}
+    ]
+    dummy.downloader.download.return_value = {"cluster_id": 99}
+
+    out_dir = tmp_path / "cases"
+    out_dir.mkdir()
+    GuiApplication.download_cases(dummy, ["kw"], str(out_dir))
+
+    expected = out_dir / "Cluster Case_99.json"
+    assert expected.exists()
+

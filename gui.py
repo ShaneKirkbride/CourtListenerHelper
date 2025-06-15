@@ -9,6 +9,7 @@ from CourtListenerHelper import (
     CaseSearcher,
     CaseDownloader,
     sanitize_filename,
+    get_case_id,
     API_BASE,
     TOKEN,
 )
@@ -78,11 +79,12 @@ class GuiApplication:
             self.log_message(f"Searching cases for '{kw}' ...")
             for case_meta in self.searcher.search(kw):
                 total += 1
-                name = case_meta.get("name", f"case_{case_meta['id']}")
+                case_id = get_case_id(case_meta)
+                name = case_meta.get("name", f"case_{case_id}")
                 self.log_message(f"Downloading '{name}' ...")
                 data = self.downloader.download(case_meta["url"])
                 safe = sanitize_filename(name)
-                path = os.path.join(out_dir, f"{safe}_{case_meta['id']}.json")
+                path = os.path.join(out_dir, f"{safe}_{case_id}.json")
                 with open(path, "w", encoding="utf-8") as f:
                     import json
                     json.dump(data, f, indent=2)
