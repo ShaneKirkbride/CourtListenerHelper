@@ -16,6 +16,7 @@ import time
 import os
 import logging
 from typing import List, Dict, Generator, Optional
+from requests.adapters import HTTPAdapter, Retry
 
 API_BASE = "https://www.courtlistener.com/api/rest/v4"
 TOKEN = os.getenv("COURTLISTENER_TOKEN")  # Set your API token in env.
@@ -29,48 +30,42 @@ class ApiClient:
 
     def __init__(self, base_url: str, token: str):
         self.base_url = base_url.rstrip("/")
-        self.headers = {
-            "Authorization": f"Token {token}"
-        }
+        self.headers = {"Authorization": f"Token {token}"}
+
+        # Initialize metrics storage
         self.metrics = {
             "call_count": 0,
             "total_bytes": 0,
             "total_time": 0.0,
         }
 
-    def get(
-        self,
-        path: str,
-        params: Optional[Dict] = None,
-        max_retries: int = 3,
-    ) -> requests.Response:
-        """Perform a GET request with basic retry and metric collection."""
-        if params is None:
-            params = {}
-        if path.startswith("http"):
-            url = path
-        else:
-            url = f"{self.base_url}{path}"
-        retries = 0
-        while True:
-            # Measure duration so we can record API timing metrics
-            start = time.time()
-            resp = requests.get(url, headers=self.headers, params=params)
-            elapsed = time.time() - start
-            self.metrics["call_count"] += 1
-            self.metrics["total_bytes"] += len(resp.content)
-            self.metrics["total_time"] += elapsed
-            if resp.status_code == 429 and retries < max_retries:
-                # Respect server rate limiting and retry after the suggested delay
-                wait = int(resp.headers.get("Retry-After", 60))
-                logger.warning(
-                    "Rate limited, retrying after %s seconds...", wait
-                )
-                time.sleep(wait)
-                retries += 1
-                continue
-            break
-        resp.raise_for_status()
+        # Configure session with retries for 5xx errors
+        self.session = requests.Session()
+        retries = Retry(
+            total=5,
+            backoff_factor=1.5,
+            status_forcelist=[500, 502, 503, 504],
+            allowed_methods=["GET", "POST"],
+            raise_on_status=False,
+        )
+        adapter = HTTPAdapter(max_retries=retries)
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
+
+    def _update_metrics(self, resp: requests.Response, elapsed: float) -> None:
+        self.metrics["call_count"] += 1
+        self.metrics["total_bytes"] += len(resp.content)
+        self.metrics["total_time"] += elapsed
+
+    def get(self, path, params=None):
+        if params is None: params = {}
+        url = path if path.startswith("http") else f"{self.base_url}{path}"
+        start = time.time()
+        resp = self.session.get(url, headers=self.headers, params=params, timeout=30)
+        elapsed = time.time() - start
+        self._update_metrics(resp, elapsed)
+        if resp.status_code >= 500:
+            resp.raise_for_status()
         return resp
 
     def post(
@@ -97,50 +92,126 @@ class ApiClient:
 
 
 class CaseSearcher:
-    """ Uses search API to query cases by keyword """
+    """ Uses search API to query cases by keyword with optional jurisdiction filter. """
     def __init__(self, client: ApiClient, page_size: int = 100):
         self.client = client
         self.page_size = page_size
 
-    def search(self, keyword: str) -> Generator[Dict, None, None]:
-        """Yield search results for ``keyword`` one page at a time."""
+    def search(self, keyword: str, jurisdictions: Optional[str] = None) -> Generator[Dict, None, None]:
+        """
+        Yield search results for `keyword`, optionally filtering by jurisdictions.
+        """
         path = "/search/"
         params = {
             "q": keyword,
-            "type": "o",  # case law (opinion)
+            "type": "o",  # opinion / case law
             "page_size": self.page_size
         }
+        if jurisdictions:
+            params["case__court__jurisdictions"] = jurisdictions
+
         next_url = None
         while True:
             if next_url:
-                # Follow pagination links returned by the API
                 resp = self.client.get(next_url, params={})
             else:
-                # First page of results
                 resp = self.client.get(path, params=params)
+            resp.raise_for_status()
             js = resp.json()
+
             for result in js.get("results", []):
                 yield result
+
             next_url = js.get("next")
             if not next_url:
                 break
 
-
 class CaseDownloader:
-    """ Downloads full case details given case IDs """
+    """ Downloads full case details and PDF given a case URL or ID. """
+
     def __init__(self, client: ApiClient):
         self.client = client
 
     def download(self, case_url: str) -> Dict:
-        """Return the JSON for a single case from its API URL."""
         resp = self.client.get(case_url)
-        return resp.json()
+        resp.raise_for_status()
+        case = resp.json()
 
-    def download_pdf(self, pdf_url: str) -> bytes:
-        """Return the raw PDF bytes for the provided ``pdf_url``."""
-        resp = self.client.get(pdf_url)
+        # Extract PDF bytes (same logic as before)
+        pdf_bytes = self._extract_pdf(case)
+
+        # Fetch opinions separately
+        opinions = []
+        try:
+            opinions = self._fetch_opinions(case.get("cluster_id"))
+        except HTTPError as e:
+            self.client.logger.warning(
+                f"Failed to fetch opinions for cluster {case.get('cluster_id')}: {e}"
+            )
+        
+        return {"metadata": case, "pdf_bytes": pdf_bytes, "opinions": opinions}
+
+    def _extract_pdf(self, case: Dict) -> Optional[bytes]:
+        pdf_url = case.get("download_url") or case.get("download_pdf")
+        if pdf_url:
+            try:
+                return self._download_pdf_bytes(pdf_url)
+            except:
+                pass
+
+        # Fallback to docket entries:
+        docket = case.get("docket")
+        docket_id = docket.get("id") if isinstance(docket, dict) else str(docket).split("/")[-1]
+        if docket_id:
+            for ent in self._get_docket_entries(docket_id):
+                file_url = ent.get("file", {}).get("url")
+                if file_url:
+                    try:
+                        return self._download_pdf_bytes(file_url)
+                    except:
+                        continue
+        return None
+
+    def _fetch_opinions(self, cluster_id: int) -> List[Dict]:
+        """
+        Return list of opinions with full text fields:
+        xml_harvard, html_lawbox, plain_text.
+        """
+        if not cluster_id:
+            return []
+
+        # Search opinions for this cluster
+        path = f"/opinions/"
+        params = {"cluster": cluster_id}
+        resp = self.client.get(path, params=params)
+        resp.raise_for_status()
+        opinions = resp.json().get("results", [])
+
+        opinion_texts = []
+        for op in opinions:
+            # fields may include xml_harvard, html_lawbox, plain_text
+            opinion_texts.append({
+                "id": op.get("id"),
+                "type": op.get("type"),
+                "xml": op.get("xml_harvard"),
+                "html": op.get("html_lawbox"),
+                "plain_text": op.get("plain_text"),
+                "download_url": op.get("download_url")
+            })
+        return opinion_texts
+
+    def _get_docket_entries(self, docket_id: str) -> list:
+        """Return list of docket entries by docket ID, not full URL."""
+        path = f"/dockets/{docket_id}/entries/"
+        resp = self.client.get(path)
+        resp.raise_for_status()
+        return resp.json().get("results", [])
+
+    def _download_pdf_bytes(self, pdf_url: str) -> bytes:
+        """Use client to fetch PDF bytes via GET."""
+        resp = self.client.get(pdf_url, stream=True)
+        resp.raise_for_status()
         return resp.content
-
 
 class RecapDownloader:
     """Download docket PDFs via the RECAP fetch endpoint."""
