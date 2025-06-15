@@ -89,6 +89,13 @@ class GuiApplication:
                 with open(path, "w", encoding="utf-8") as f:
                     import json
                     json.dump(data, f, indent=2)
+                pdf_url = data.get("download_url")
+                if pdf_url:
+                    pdf_path = os.path.join(out_dir, f"{safe}_{case_id}.pdf")
+                    if not os.path.exists(pdf_path):
+                        pdf_bytes = self.downloader.download_pdf(pdf_url)
+                        with open(pdf_path, "wb") as pf:
+                            pf.write(pdf_bytes)
                 self.progress.step(1)
         metrics = self.client.get_metrics()
         self.log_message(f"Completed. Total cases: {total}")

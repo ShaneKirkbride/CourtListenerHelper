@@ -4,9 +4,10 @@
 This module provides utilities to search for cases on the CourtListener REST
 API and download their full contents to a directory chosen by the user.  The
 code is organised around small classes that each focus on a single
-responsibility following the SOLID principles.  It can be used either from the
-command line via :class:`CommandLineInterface` or programmatically via the
-``main`` function.
+responsibility following the SOLID principles.  It downloads both the case
+metadata and the PDF opinion when available.  The module can be used either
+from the command line via :class:`CommandLineInterface` or programmatically via
+the ``main`` function.
 """
 
 import argparse
@@ -117,6 +118,11 @@ class CaseDownloader:
         resp = self.client.get(case_url)
         return resp.json()
 
+    def download_pdf(self, pdf_url: str) -> bytes:
+        """Return the raw PDF bytes for the provided ``pdf_url``."""
+        resp = self.client.get(pdf_url)
+        return resp.content
+
 
 class CommandLineInterface:
     """Handle command-line argument parsing and app execution."""
@@ -222,6 +228,13 @@ def main(
             with open(filename, "w", encoding="utf-8") as f:
                 import json
                 json.dump(full_case, f, indent=2)
+            pdf_url = full_case.get("download_url")
+            if pdf_url:
+                pdf_path = os.path.join(out_dir, f"{safe_name}_{case_id}.pdf")
+                if not os.path.exists(pdf_path):
+                    pdf_bytes = downloader.download_pdf(pdf_url)
+                    with open(pdf_path, "wb") as pf:
+                        pf.write(pdf_bytes)
             # Slight delay to avoid hitting API rate limits aggressively
             time.sleep(0.1)
 

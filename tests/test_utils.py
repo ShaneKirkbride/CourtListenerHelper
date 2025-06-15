@@ -188,12 +188,15 @@ def test_gui_download_cases_handles_cluster_id(tmp_path):
     dummy.searcher.search.return_value = [
         {"cluster_id": 99, "url": "/case/99", "name": "Cluster Case"}
     ]
-    dummy.downloader.download.return_value = {"cluster_id": 99}
+    dummy.downloader.download.return_value = {"cluster_id": 99, "download_url": "http://example.com/99.pdf"}
+    dummy.downloader.download_pdf.return_value = b"pdf"
 
     out_dir = tmp_path / "cases"
     out_dir.mkdir()
     GuiApplication.download_cases(dummy, ["kw"], str(out_dir))
 
-    expected = out_dir / "Cluster Case_99.json"
-    assert expected.exists()
+    expected_json = out_dir / "Cluster Case_99.json"
+    assert expected_json.exists()
+    expected_pdf = out_dir / "Cluster Case_99.pdf"
+    assert expected_pdf.exists()
 
