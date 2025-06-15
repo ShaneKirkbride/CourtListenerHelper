@@ -1,2 +1,47 @@
-__pycache__/
+# Bytecode cache
+**/__pycache__/
+*.pyc
 .pytest_cache/
+
+# Visual Studio user-specific files
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.userprefs
+
+# Visual Studio build directories
+.vs/
+[Bb]in/
+[Oo]bj/
+[Dd]ebug*/
+[Rr]elease*/
+bld/
+[Oo]ut/
+# Visual Studio architecture-specific
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+[Aa][Rr][Mm]64[Ee][Cc]/
+
+# Test and log directories
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+*.trx
+
+# OS generated files
+*.DS_Store
+Thumbs.db
+
+# Visual Studio Code
+.vscode/
+
+# NuGet packages folder
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+
+# Node modules (for JS-based tooling)
+node_modules/
+
