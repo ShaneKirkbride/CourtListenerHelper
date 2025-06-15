@@ -156,6 +156,26 @@ def get_case_id(meta: Dict) -> str:
     raise KeyError("No case identifier found in metadata")
 
 
+def get_case_url(meta: Dict) -> str:
+    """Return the API URL for a case from metadata.
+
+    The CourtListener search API historically exposed the key ``url`` for
+    fetching full case details.  Some endpoints instead provide
+    ``absolute_url`` or ``resource_uri``.  This helper normalises those
+    variations so callers don't need to know the exact field name.
+    """
+    if "url" in meta:
+        return meta["url"]
+    if "resource_uri" in meta:
+        return meta["resource_uri"]
+    if "absolute_url" in meta:
+        url = meta["absolute_url"]
+        if url.startswith("http"):
+            return url
+        return f"{API_BASE}{url}" if not url.startswith("/api") else url
+    raise KeyError("No case URL found in metadata")
+
+
 def sanitize_filename(name: str) -> str:
     """Return a filesystem-safe version of ``name`` suitable for saving files."""
     return "".join(c if c.isalnum() or c in " _-" else "_" for c in name)
@@ -183,7 +203,7 @@ def main(
         # Iterate over all pages of search results
         for case_meta in searcher.search(keyword):
             case_id = get_case_id(case_meta)
-            case_url = case_meta["url"]
+            case_url = get_case_url(case_meta)
             case_name = case_meta.get("name", f"case_{case_id}")
             safe_name = sanitize_filename(case_name)
             filename = os.path.join(out_dir, f"{safe_name}_{case_id}.json")

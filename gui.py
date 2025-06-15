@@ -10,6 +10,7 @@ from CourtListenerHelper import (
     CaseDownloader,
     sanitize_filename,
     get_case_id,
+    get_case_url,
     API_BASE,
     TOKEN,
 )
@@ -82,7 +83,7 @@ class GuiApplication:
                 case_id = get_case_id(case_meta)
                 name = case_meta.get("name", f"case_{case_id}")
                 self.log_message(f"Downloading '{name}' ...")
-                data = self.downloader.download(case_meta["url"])
+                data = self.downloader.download(get_case_url(case_meta))
                 safe = sanitize_filename(name)
                 path = os.path.join(out_dir, f"{safe}_{case_id}.json")
                 with open(path, "w", encoding="utf-8") as f:
