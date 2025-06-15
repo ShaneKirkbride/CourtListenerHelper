@@ -8,6 +8,8 @@ from CourtListenerHelper import (
     CaseSearcher,
     CaseDownloader,
     get_case_id,
+    get_case_url,
+    API_BASE,
 )
 
 
@@ -88,6 +90,15 @@ def test_get_case_id_variants():
     assert get_case_id(meta) == '2'
     meta = {'docket_id': 3}
     assert get_case_id(meta) == '3'
+
+
+def test_get_case_url_variants():
+    assert get_case_url({'url': '/case/1'}) == '/case/1'
+    assert get_case_url({'resource_uri': '/case/2'}) == '/case/2'
+    expected = f"{API_BASE}/case/3"
+    assert get_case_url({'absolute_url': '/case/3'}) == expected
+    with pytest.raises(KeyError):
+        get_case_url({})
 
 
 def test_gui_download_cases_handles_cluster_id(tmp_path):
