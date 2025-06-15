@@ -1,6 +1,13 @@
 import json
 from unittest.mock import MagicMock
-from CourtListenerHelper import main, CommandLineInterface, ApiClient, CaseSearcher, CaseDownloader, sanitize_filename
+from CourtListenerHelper import (
+    main,
+    CommandLineInterface,
+    ApiClient,
+    CaseSearcher,
+    CaseDownloader,
+    sanitize_filename,
+)
 import os
 
 def test_main_writes_files(tmp_path):
@@ -23,6 +30,23 @@ def test_main_writes_files(tmp_path):
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
             assert data == {"id": cid}
+
+
+def test_main_handles_cluster_id(tmp_path):
+    searcher = MagicMock()
+    downloader = MagicMock()
+    searcher.search.return_value = [
+        {"cluster_id": 42, "url": "/case/42", "name": "Cluster Case"},
+    ]
+    downloader.download.return_value = {"cluster_id": 42}
+    out_dir = tmp_path / "cases"
+    main(["foo"], str(out_dir), searcher, downloader)
+    safe = sanitize_filename("Cluster Case")
+    path = out_dir / f"{safe}_42.json"
+    assert path.exists()
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+        assert data == {"cluster_id": 42}
 
 
 def test_cli_invokes_main(monkeypatch):
