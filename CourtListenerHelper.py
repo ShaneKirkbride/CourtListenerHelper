@@ -15,7 +15,7 @@ import requests
 import time
 import os
 import logging
-from typing import List, Dict, Generator, Optional
+from typing import List, Dict, Generator, Optional, Iterable, Union
 from requests.adapters import HTTPAdapter, Retry
 
 API_BASE = "https://www.courtlistener.com/api/rest/v4"
@@ -92,25 +92,35 @@ class ApiClient:
 
 
 class CaseSearcher:
-    """ Uses search API to query cases by keyword with optional jurisdiction filter. """
+    """Uses search API to query cases by keyword with optional jurisdiction filter."""
+
     def __init__(self, client: ApiClient, page_size: int = 100):
         self.client = client
         self.page_size = page_size
 
-    def search(self, keyword: str, jurisdictions: Optional[str] = None) -> Generator[Dict, None, None]:
-        """
-        Yield search results for `keyword`, optionally filtering by jurisdictions.
-        """
+    def search(
+        self,
+        keyword: str,
+        jurisdictions: Optional[Union[str, Iterable[str]]] = None,
+    ) -> Generator[Dict, None, None]:
+        """Yield search results for ``keyword`` filtered by jurisdictions."""
+
         path = "/search/"
         params = {
             "q": keyword,
             "type": "o",  # opinion / case law
-            "page_size": self.page_size
+            "page_size": self.page_size,
         }
         if jurisdictions:
-            params["case__court__jurisdictions"] = jurisdictions
+            if isinstance(jurisdictions, str):
+                juris_val = jurisdictions
+            else:
+                juris_val = ",".join(jurisdictions)
+            params["jurisdiction"] = juris_val
 
         next_url = None
+        keyword_lc = keyword.lower()
+
         while True:
             if next_url:
                 resp = self.client.get(next_url, params={})
@@ -120,7 +130,9 @@ class CaseSearcher:
             js = resp.json()
 
             for result in js.get("results", []):
-                yield result
+                text = f"{result.get('name','')} {result.get('snippet','')}".lower()
+                if keyword_lc in text:
+                    yield result
 
             next_url = js.get("next")
             if not next_url:
