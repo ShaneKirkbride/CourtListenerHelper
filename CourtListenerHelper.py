@@ -86,24 +86,6 @@ class ApiClient:
         resp.raise_for_status()
         return resp
 
-    def post(
-        self,
-        path: str,
-        data: Optional[Dict] = None,
-    ) -> requests.Response:
-        """Perform a POST request and record metrics."""
-        if data is None:
-            data = {}
-        url = path if path.startswith("http") else f"{self.base_url}{path}"
-        start = time.time()
-        resp = requests.post(url, headers=self.headers, data=data)
-        elapsed = time.time() - start
-        self.metrics["call_count"] += 1
-        self.metrics["total_bytes"] += len(resp.content)
-        self.metrics["total_time"] += elapsed
-        resp.raise_for_status()
-        return resp
-
     def get_metrics(self) -> Dict[str, float]:
         """Return collected metrics."""
         return dict(self.metrics)
@@ -146,9 +128,14 @@ class CaseSearcher:
         while True:
             resp = self.client.get(next_url or path, params={} if next_url else params)
             resp.raise_for_status()
-            data = resp.json()
-            yield from data.get("results", [])
-            next_url = data.get("next")
+            js = resp.json()
+
+            for result in js.get("results", []):
+                text = f"{result.get('name','')} {result.get('snippet','')}".lower()
+                if keyword_lc in text:
+                    yield result
+
+            next_url = js.get("next")
             if not next_url:
                 break
 
@@ -294,60 +281,6 @@ class RecapDownloader:
         return self.download_pdf(url)
 
 
-class RecapDownloader:
-    """Download docket PDFs via the RECAP fetch endpoint."""
-
-    def __init__(self, client: ApiClient, pacer_user: str, pacer_pass: str):
-        self.client = client
-        self.pacer_user = pacer_user
-        self.pacer_pass = pacer_pass
-
-    def get_recap_entries(self, docket_id: int) -> List[Dict]:
-        """Return docket entries that have a RECAP document."""
-        resp = self.client.get(f"/dockets/{docket_id}/entries/")
-        entries = resp.json().get("results", [])
-        return [e for e in entries if e.get("recap_document")]
-
-    def request_pdf(self, recap_doc_id: int) -> Dict:
-        """Request the PDF for ``recap_doc_id`` via the fetch endpoint."""
-        data = {
-            "request_type": "2",
-            "recap_document": str(recap_doc_id),
-            "pacer_username": self.pacer_user,
-            "pacer_password": self.pacer_pass,
-        }
-        resp = self.client.post("/recap-fetch/", data=data)
-        return resp.json()
-
-    def poll_entry(self, entry_id: int, interval: int = 5, timeout: int = 300) -> str:
-        """Poll until the docket entry file URL is available."""
-        elapsed = 0
-        while elapsed < timeout:
-            resp = self.client.get(f"/docket-entries/{entry_id}/")
-            entry = resp.json()
-            url = entry.get("file", {}).get("url")
-            if url:
-                return url
-            time.sleep(interval)
-            elapsed += interval
-        raise TimeoutError("PDF not ready within timeout")
-
-    def download_pdf(self, url: str) -> bytes:
-        """Return the PDF bytes at ``url``."""
-        resp = self.client.get(url)
-        return resp.content
-
-    def fetch_first_pdf(self, docket_id: int) -> bytes:
-        """Fetch the first available RECAP PDF for the docket."""
-        entries = self.get_recap_entries(docket_id)
-        if not entries:
-            raise ValueError("No RECAP documents found")
-        entry = entries[0]
-        self.request_pdf(entry["recap_document"])
-        url = self.poll_entry(entry["id"])
-        return self.download_pdf(url)
-
-
 class CommandLineInterface:
     """Handle command-line argument parsing and app execution."""
 
@@ -367,13 +300,25 @@ class CommandLineInterface:
             default="cases",
             help="Directory to store downloaded cases",
         )
+        self.parser.add_argument(
+            "-j",
+            "--jurisdiction",
+            nargs="+",
+            help="One or more jurisdiction slugs to filter results",
+        )
 
     def run(self, argv: Optional[List[str]] = None) -> None:
         """Parse ``argv`` and download cases using the provided client."""
         args = self.parser.parse_args(argv)
         searcher = CaseSearcher(self.client)
         downloader = CaseDownloader(self.client)
-        main(args.keywords, args.output, searcher, downloader)
+        main(
+            args.keywords,
+            args.output,
+            searcher,
+            downloader,
+            jurisdictions=args.jurisdiction,
+        )
 
 
 def get_case_id(meta: Dict) -> str:
@@ -389,14 +334,21 @@ def get_case_id(meta: Dict) -> str:
     raise KeyError("No case identifier found in metadata")
 
 
-def get_case_url(meta: Dict) -> Optional[str]:
-    for field in ("url", "resource_uri", "absolute_url"):
-        val = meta.get(field)
-        if val:
-            return val if val.startswith("/") or val.startswith("http") else f"/api{val}"
+def get_case_url(meta: Dict) -> str:
+    """Return the API URL for a case from metadata."""
+    if "url" in meta:
+        return meta["url"]
+    if "resource_uri" in meta:
+        return meta["resource_uri"]
     if "cluster_id" in meta:
         return f"/clusters/{meta['cluster_id']}/"
-    return None  # No URL found
+    if "absolute_url" in meta:
+        url = meta["absolute_url"]
+        if url.startswith("/api/"):
+            return url
+        if url.startswith("http") and "/api/" in url:
+            return url
+    raise KeyError("No case URL found in metadata")
 
 def sanitize_filename(name: str) -> str:
     """Return a filesystem-safe version of ``name`` suitable for saving files."""
@@ -410,8 +362,21 @@ def main(
     out_dir: str = "cases",
     searcher: Optional[CaseSearcher] = None,
     downloader: Optional[CaseDownloader] = None,
+    jurisdictions: Optional[Union[str, Iterable[str]]] = None,
 ):
-    """Download all cases matching ``keywords`` into ``out_dir``."""
+    """Download all cases matching ``keywords`` into ``out_dir``.
+
+    Parameters
+    ----------
+    keywords:
+        Search terms used to query the API.
+    out_dir:
+        Directory where case files will be written.
+    searcher, downloader:
+        Optional pre-configured helper instances.
+    jurisdictions:
+        One or more jurisdiction slugs to limit results.
+    """
     os.makedirs(out_dir, exist_ok=True)
     if searcher is None or downloader is None:
         client = ApiClient(API_BASE, TOKEN)
@@ -423,7 +388,7 @@ def main(
     for keyword in keywords:
         logger.info("\U0001F50D Searching cases for '%s' …", keyword)
         # Iterate over all pages of search results
-        for case_meta in searcher.search(keyword):
+        for case_meta in searcher.search(keyword, jurisdictions=jurisdictions):
             case_id = get_case_id(case_meta)
             case_url = get_case_url(case_meta)
             case_name = case_meta.get("name", f"case_{case_id}")
