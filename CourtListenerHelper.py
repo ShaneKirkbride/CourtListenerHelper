@@ -124,6 +124,11 @@ class CaseSearcher:
             if end_date:
                 params["date_filed__lte"] = end_date
 
+        if start_date:
+            params["date_filed_min"] = start_date
+        if end_date:
+            params["date_filed_max"] = end_date
+
         next_url = None
         while True:
             resp = self.client.get(next_url or path, params={} if next_url else params)
