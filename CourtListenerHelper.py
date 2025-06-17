@@ -117,46 +117,41 @@ class CaseSearcher:
         self.page_size = page_size
 
     def search(
-        self,
-        keyword: str,
-        jurisdictions: Optional[Union[str, Iterable[str]]] = None,
+    self,
+    keyword: str,
+    jurisdictions: Optional[Union[str, Iterable[str]]] = None,
+    start_date: Optional[str] = None,  # inclusive, YYYY-MM-DD
+    end_date: Optional[str] = None,    # inclusive
     ) -> Generator[Dict, None, None]:
-        """Yield search results for ``keyword`` filtered by jurisdictions."""
-
         path = "/search/"
         params = {
             "q": keyword,
-            "type": "o",  # opinion / case law
+            "type": "o",
             "page_size": self.page_size,
         }
         if jurisdictions:
             if isinstance(jurisdictions, str):
-                juris_val = jurisdictions
+                params["case__court__jurisdictions"] = jurisdictions
             else:
-                juris_val = ",".join(jurisdictions)
-            params["jurisdiction"] = juris_val
+                params["case__court__jurisdictions"] = ",".join(jurisdictions)
+        if start_date and end_date:
+            params["date_filed__range"] = f"{start_date},{end_date}"
+        else:
+            if start_date:
+                params["date_filed__gte"] = start_date
+            if end_date:
+                params["date_filed__lte"] = end_date
 
         next_url = None
-        keyword_lc = keyword.lower()
-
         while True:
-            if next_url:
-                resp = self.client.get(next_url, params={})
-            else:
-                resp = self.client.get(path, params=params)
+            resp = self.client.get(next_url or path, params={} if next_url else params)
             resp.raise_for_status()
-            js = resp.json()
-
-            for result in js.get("results", []):
-                opinions = result.get('opinions', [])
-                for opinion in opinions:
-                    text = f"{opinion.get('name','')} {opinion.get('snippet','')}".lower()
-                    if keyword_lc in text:
-                        yield opinion
-
-            next_url = js.get("next")
+            data = resp.json()
+            yield from data.get("results", [])
+            next_url = data.get("next")
             if not next_url:
                 break
+
 
 class CaseDownloader:
     """ Downloads full case details and PDF given a case URL or ID. """
