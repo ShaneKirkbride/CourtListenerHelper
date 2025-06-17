@@ -35,6 +35,16 @@ class GuiApplication:
         self.keyword_entry = tk.Entry(root, width=50)
         self.keyword_entry.pack(fill="x", padx=5)
 
+        tk.Label(root, text="Start Date (YYYY-MM-DD):").pack(anchor="w", padx=5, pady=(5, 0))
+        self.start_date_var = tk.StringVar()
+        self.start_date_entry = tk.Entry(root, textvariable=self.start_date_var)
+        self.start_date_entry.pack(fill="x", padx=5)
+
+        tk.Label(root, text="End Date (YYYY-MM-DD):").pack(anchor="w", padx=5, pady=(5, 0))
+        self.end_date_var = tk.StringVar()
+        self.end_date_entry = tk.Entry(root, textvariable=self.end_date_var)
+        self.end_date_entry.pack(fill="x", padx=5)
+
         tk.Label(root, text="Jurisdiction:").pack(anchor="w", padx=5, pady=(5, 0))
         self.jur_var = tk.StringVar(value=JURISDICTIONS[0][0])
         options = [name for name, _ in JURISDICTIONS]
@@ -72,12 +82,15 @@ class GuiApplication:
         jur_name = self.jur_var.get()
         jurisdiction = next(code for name, code in JURISDICTIONS if name == jur_name)
 
+        start_date = self.start_date_var.get().strip() or None
+        end_date = self.end_date_var.get().strip() or None
+
         os.makedirs(out_dir, exist_ok=True)
         self.start_button.config(state="disabled")
         self.progress.config(value=0)
         threading.Thread(
             target=self.download_cases,
-            args=(keywords, out_dir, jurisdiction),
+            args=(keywords, out_dir, jurisdiction, start_date, end_date),
             daemon=True,
         ).start()
 
@@ -91,14 +104,21 @@ class GuiApplication:
         self,
         keywords: List[str],
         out_dir: str,
-        jurisdiction: Optional[str] = None
+        jurisdiction: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
     ) -> None:
         total = 0
         for kw in keywords:
             self.log_message(
                 f"Searching cases for '{kw}'" + (f" in {jurisdiction}" if jurisdiction else "") + " …"
             )
-            for case_meta in self.searcher.search(kw, jurisdictions=jurisdiction):
+            for case_meta in self.searcher.search(
+                kw,
+                jurisdictions=jurisdiction,
+                start_date=start_date,
+                end_date=end_date,
+            ):
                 total += 1
                 case_id = get_case_id(case_meta)
                 name = case_meta.get("name", f"case_{case_id}")
@@ -172,9 +192,9 @@ class GuiApplication:
         self.start_button.config(state="normal")
 
 def run() -> None:
-        root = tk.Tk()
-        GuiApplication(root)
-        root.mainloop()
+    root = tk.Tk()
+    GuiApplication(root)
+    root.mainloop()
 
 if __name__ == "__main__":
     run()

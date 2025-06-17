@@ -102,6 +102,8 @@ class CaseSearcher:
         self,
         keyword: str,
         jurisdictions: Optional[Union[str, Iterable[str]]] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
     ) -> Generator[Dict, None, None]:
         """Yield search results for ``keyword`` filtered by jurisdictions."""
 
@@ -117,6 +119,11 @@ class CaseSearcher:
             else:
                 juris_val = ",".join(jurisdictions)
             params["jurisdiction"] = juris_val
+
+        if start_date:
+            params["date_filed_min"] = start_date
+        if end_date:
+            params["date_filed_max"] = end_date
 
         next_url = None
         keyword_lc = keyword.lower()
