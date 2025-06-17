@@ -51,12 +51,6 @@ class GuiApplication:
         self.jur_menu = ttk.OptionMenu(root, self.jur_var, options[0], *options)
         self.jur_menu.pack(fill="x", padx=5)
 
-        # In __init__():
-        tk.Label(root, text="Start Date (YYYY-MM-DD):").pack(...)
-        self.start_entry = tk.Entry(root); self.start_entry.pack(...)
-        tk.Label(root, text="End Date (YYYY-MM-DD):").pack(...)
-        self.end_entry = tk.Entry(root); self.end_entry.pack(...)
-
         tk.Label(root, text="Output Directory:").pack(anchor="w", padx=5, pady=(5, 0))
         out_frame = tk.Frame(root)
         out_frame.pack(fill="x", padx=5)

@@ -136,9 +136,11 @@ class CaseSearcher:
             js = resp.json()
 
             for result in js.get("results", []):
-                text = f"{result.get('name','')} {result.get('snippet','')}".lower()
-                if keyword_lc in text:
-                    yield result
+                opinions = result.get('opinions', [])
+                for opinion in opinions:
+                    text = f"{opinion.get('name','')} {opinion.get('snippet','')}".lower()
+                    if keyword in text:
+                        yield result
 
             next_url = js.get("next")
             if not next_url:
