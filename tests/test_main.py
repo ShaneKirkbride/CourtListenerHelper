@@ -59,13 +59,18 @@ def test_main_handles_cluster_id(tmp_path):
 
 def test_cli_invokes_main(monkeypatch):
     called = {}
-    def fake_main(keywords, output, searcher, downloader):
+    def fake_main(keywords, output, searcher, downloader, jurisdictions=None):
         called['keywords'] = keywords
         called['output'] = output
-        called['types'] = (isinstance(searcher, CaseSearcher), isinstance(downloader, CaseDownloader))
+        called['jurisdictions'] = jurisdictions
+        called['types'] = (
+            isinstance(searcher, CaseSearcher),
+            isinstance(downloader, CaseDownloader),
+        )
     monkeypatch.setattr('CourtListenerHelper.main', fake_main)
     cli = CommandLineInterface(ApiClient('http://example.com', 't'))
-    cli.run(['foo', 'bar', '-o', 'dest'])
+    cli.run(['foo', 'bar', '-o', 'dest', '-j', 'colo', 'circtdco'])
     assert called['keywords'] == ['foo', 'bar']
     assert called['output'] == 'dest'
+    assert called['jurisdictions'] == ['colo', 'circtdco']
     assert all(called['types'])
