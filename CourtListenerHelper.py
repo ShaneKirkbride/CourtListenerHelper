@@ -148,9 +148,11 @@ class CaseSearcher:
             js = resp.json()
 
             for result in js.get("results", []):
-                text = f"{result.get('name','')} {result.get('snippet','')}".lower()
-                if keyword_lc in text:
-                    yield result
+                opinions = result.get('opinions', [])
+                for opinion in opinions:
+                    text = f"{opinion.get('name','')} {opinion.get('snippet','')}".lower()
+                    if keyword_lc in text:
+                        yield opinion
 
             next_url = js.get("next")
             if not next_url:
@@ -392,28 +394,14 @@ def get_case_id(meta: Dict) -> str:
     raise KeyError("No case identifier found in metadata")
 
 
-def get_case_url(meta: Dict) -> str:
-    """Return the API URL for a case from metadata.
-
-    The CourtListener search API historically exposed the key ``url`` for
-    fetching full case details.  Some endpoints instead provide
-    ``absolute_url`` or ``resource_uri``.  This helper normalises those
-    variations so callers don't need to know the exact field name.
-    """
-    if "url" in meta:
-        return meta["url"]
-    if "resource_uri" in meta:
-        return meta["resource_uri"]
+def get_case_url(meta: Dict) -> Optional[str]:
+    for field in ("url", "resource_uri", "absolute_url"):
+        val = meta.get(field)
+        if val:
+            return val if val.startswith("/") or val.startswith("http") else f"/api{val}"
     if "cluster_id" in meta:
         return f"/clusters/{meta['cluster_id']}/"
-    if "absolute_url" in meta:
-        url = meta["absolute_url"]
-        if url.startswith("/api/"):
-            return url
-        if url.startswith("http") and "/api/" in url:
-            return url
-    raise KeyError("No case URL found in metadata")
-
+    return None  # No URL found
 
 def sanitize_filename(name: str) -> str:
     """Return a filesystem-safe version of ``name`` suitable for saving files."""
