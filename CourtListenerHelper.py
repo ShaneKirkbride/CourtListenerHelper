@@ -99,11 +99,11 @@ class CaseSearcher:
         self.page_size = page_size
 
     def search(
-    self,
-    keyword: str,
-    jurisdictions: Optional[Union[str, Iterable[str]]] = None,
-    start_date: Optional[str] = None,  # inclusive, YYYY-MM-DD
-    end_date: Optional[str] = None,    # inclusive
+        self,
+        keyword: str,
+        jurisdictions: Optional[Union[str, Iterable[str]]] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
     ) -> Generator[Dict, None, None]:
         path = "/search/"
         params = {
