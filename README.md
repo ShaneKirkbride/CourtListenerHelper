@@ -31,8 +31,9 @@ pip install requests
 Set your API token in the environment variable `COURTLISTENER_TOKEN` and run:
 
 ```bash
-python CourtListenerHelper.py "keyword" -o output_dir
+python CourtListenerHelper.py "keyword" -o output_dir -j colo
 ```
+Use `-j`/`--jurisdiction` to limit results to one or more jurisdiction slugs.
 
 Multiple keywords may be provided, and the tool will create the output
 directory if necessary.
