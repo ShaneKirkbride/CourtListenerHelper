@@ -70,7 +70,7 @@ def test_cli_invokes_main(monkeypatch):
     monkeypatch.setattr('CourtListenerHelper.main', fake_main)
     cli = CommandLineInterface(ApiClient('http://example.com', 't'))
     cli.run(['foo', 'bar', '-o', 'dest', '-j', 'colo', 'circtdco'])
-    assert called['keywords'] == ['foo', 'bar']
+    assert called['keywords'] == ['foo bar']
     assert called['output'] == 'dest'
     assert called['jurisdictions'] == ['colo', 'circtdco']
     assert all(called['types'])
