@@ -99,7 +99,7 @@ def test_case_searcher_accepts_jurisdiction_list():
     searcher = CaseSearcher(mock_client)
     list(searcher.search('foo', jurisdictions=['a', 'b']))
     args, kwargs = mock_client.get.call_args
-    assert kwargs['params']['jurisdiction'] == 'a,b'
+    assert kwargs['params']['case__court__jurisdictions'] == 'a,b'
 
 
 def test_api_client_retry(monkeypatch):

@@ -130,17 +130,24 @@ class CaseSearcher:
             params["date_filed_max"] = end_date
 
         next_url = None
+        keyword_lc = keyword.lower()
         while True:
             resp = self.client.get(next_url or path, params={} if next_url else params)
             resp.raise_for_status()
             js = resp.json()
 
             for result in js.get("results", []):
-                opinions = result.get('opinions', [])
-                for opinion in opinions:
-                    text = f"{opinion.get('name','')} {opinion.get('snippet','')}".lower()
-                    if keyword in text:
+                text = f"{result.get('name','')} {result.get('snippet','')}".lower()
+                if keyword_lc in text:
+                    yield result
+                    continue
+
+                opinions = result.get("opinions", [])
+                for op in opinions:
+                    op_text = f"{op.get('name','')} {op.get('snippet','')}".lower()
+                    if keyword_lc in op_text:
                         yield result
+                        break
 
             next_url = js.get("next")
             if not next_url:
@@ -299,7 +306,7 @@ class CommandLineInterface:
         self.parser.add_argument(
             "keywords",
             nargs="+",
-            help="Keywords to search for",
+            help="Words forming the search phrase",
         )
         self.parser.add_argument(
             "-o",
@@ -319,8 +326,9 @@ class CommandLineInterface:
         args = self.parser.parse_args(argv)
         searcher = CaseSearcher(self.client)
         downloader = CaseDownloader(self.client)
+        phrase = " ".join(args.keywords)
         main(
-            args.keywords,
+            [phrase],
             args.output,
             searcher,
             downloader,

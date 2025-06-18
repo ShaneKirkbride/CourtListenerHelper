@@ -31,12 +31,11 @@ pip install requests
 Set your API token in the environment variable `COURTLISTENER_TOKEN` and run:
 
 ```bash
-python CourtListenerHelper.py "keyword" -o output_dir -j colo
+python CourtListenerHelper.py civil rights -o output_dir -j colo
 ```
-Use `-j`/`--jurisdiction` to limit results to one or more jurisdiction slugs.
-
-Multiple keywords may be provided, and the tool will create the output
-directory if necessary.
+All positional words are combined into a single search phrase. The example
+above searches for the phrase **"civil rights"**. Use `-j`/`--jurisdiction` to
+limit results to one or more jurisdiction slugs.
 
 ### GUI
 
@@ -46,7 +45,7 @@ Launch the Tkinter GUI with:
 python gui.py
 ```
 
-Enter keywords separated by commas, choose an output folder and click **Start**.
+Enter search phrases separated by commas, choose an output folder and click **Start**.
 A progress bar and log will show download status and API metrics.
 
 ## Testing
