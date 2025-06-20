@@ -132,8 +132,7 @@ def test_case_downloader_download():
     result = downloader.download_opinions({'id': 1, 'url': '/case/1'})
     assert result == {
         'case_id': '1',
-        'name': 'n',
-        'cluster_id': 1,
+        'case_meta': {'name': 'n', 'cluster_id': 1},
         'opinions': [{'id': 1}],
     }
     mock_client.get.assert_called_with('/case/1')
@@ -151,8 +150,7 @@ def test_case_downloader_absolute_url():
     result = downloader.download_opinions({'id': 1, 'url': url})
     assert result == {
         'case_id': '1',
-        'name': 'n',
-        'cluster_id': 5,
+        'case_meta': {'name': 'n', 'cluster_id': 5},
         'opinions': [],
     }
     mock_client.get.assert_called_with(url)
