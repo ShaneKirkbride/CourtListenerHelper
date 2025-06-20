@@ -147,20 +147,19 @@ class CaseDownloader:
         self.client = client
 
     def download_opinions(self, case_meta: Dict) -> Dict:
-        """Return opinion texts for the case described by ``case_meta``."""
+        """Return full case metadata and associated opinion texts."""
 
         case_id = get_case_id(case_meta)
         case_url = get_case_url(case_meta)
         resp = self.client.get(case_url)
-        case_data = resp.json()
+        full_meta = resp.json()
 
-        cluster_id = case_data.get("cluster_id")
+        cluster_id = full_meta.get("cluster_id")
         opinions = self._fetch_opinions(cluster_id)
 
         return {
             "case_id": case_id,
-            "name": case_data.get("name"),
-            "cluster_id": cluster_id,
+            "case_meta": full_meta,
             "opinions": opinions,
         }
 
