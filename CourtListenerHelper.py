@@ -15,6 +15,7 @@ import requests
 import time
 import os
 import logging
+from typing import Generator, Dict, Optional, Union, List
 from typing import List, Dict, Generator, Optional, Iterable, Union
 from requests.adapters import HTTPAdapter, Retry
 
@@ -101,54 +102,35 @@ class CaseSearcher:
     def search(
         self,
         keyword: str,
-        jurisdictions: Optional[Union[str, Iterable[str]]] = None,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
+        courts: Optional[Union[str, List[str]]] = None,
+        filed_after: Optional[str] = None,
+        filed_before: Optional[str] = None,
     ) -> Generator[Dict, None, None]:
         path = "/search/"
         params = {
             "q": keyword,
             "type": "o",
-            "page_size": self.page_size,
+            "order_by": "score desc",
+            "stat_Published": "on",
+            "page_size": str(self.page_size),
         }
-        if jurisdictions:
-            if isinstance(jurisdictions, str):
-                params["case__court__jurisdictions"] = jurisdictions
-            else:
-                params["case__court__jurisdictions"] = ",".join(jurisdictions)
-        if start_date and end_date:
-            params["date_filed__range"] = f"{start_date},{end_date}"
-        else:
-            if start_date:
-                params["date_filed__gte"] = start_date
-            if end_date:
-                params["date_filed__lte"] = end_date
 
-        if start_date:
-            params["date_filed_min"] = start_date
-        if end_date:
-            params["date_filed_max"] = end_date
+        if courts:
+            params["court"] = (
+                ",".join(courts) if isinstance(courts, (list, tuple)) else courts
+            )
+        if filed_after:
+            params["filed_after"] = filed_after  # format: MM/DD/YYYY
+        if filed_before:
+            params["filed_before"] = filed_before
 
         next_url = None
-        keyword_lc = keyword.lower()
         while True:
-            resp = self.client.get(next_url or path, params={} if next_url else params)
+            resp = self.client.get(next_url or path, params=params if not next_url else {})
             resp.raise_for_status()
             js = resp.json()
-
             for result in js.get("results", []):
-                text = f"{result.get('name','')} {result.get('snippet','')}".lower()
-                if keyword_lc in text:
-                    yield result
-                    continue
-
-                opinions = result.get("opinions", [])
-                for op in opinions:
-                    op_text = f"{op.get('name','')} {op.get('snippet','')}".lower()
-                    if keyword_lc in op_text:
-                        yield result
-                        break
-
+                yield result
             next_url = js.get("next")
             if not next_url:
                 break

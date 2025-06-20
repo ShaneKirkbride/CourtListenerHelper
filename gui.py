@@ -82,15 +82,15 @@ class GuiApplication:
         jur_name = self.jur_var.get()
         jurisdiction = next(code for name, code in JURISDICTIONS if name == jur_name)
 
-        start_date = self.start_date_var.get().strip() or None
-        end_date = self.end_date_var.get().strip() or None
+        start = self.start_date_var.get().strip() or None
+        end = self.end_date_var.get().strip() or None
 
         os.makedirs(out_dir, exist_ok=True)
         self.start_button.config(state="disabled")
         self.progress.config(value=0)
         threading.Thread(
             target=self.download_cases,
-            args=(keywords, out_dir, jurisdiction),
+            args=(keywords, out_dir, jurisdiction, start, end),
             daemon=True,
         ).start()
 
@@ -100,18 +100,19 @@ class GuiApplication:
         self.log.configure(state="disabled")
         self.log.see(tk.END)
 
-    def download_cases(
-        self,
-        keywords: List[str],
-        out_dir: str,
-        jurisdiction: Optional[str] = None
-    ) -> None:
+    def download_cases(self, keywords, out_dir, courts, filed_after, filed_before):
+        for case_meta in self.searcher.search(
+            kw,
+            courts=courts,
+            filed_after=filed_after,
+            filed_before=filed_before,
+        ):
         total = 0
         for kw in keywords:
             self.log_message(
                 f"Searching cases for '{kw}'" + (f" in {jurisdiction}" if jurisdiction else "") + " …"
             )
-            for case_meta in self.searcher.search(kw, jurisdictions=jurisdiction):
+            for case_meta in self.searcher.search(kw, courts=jurisdiction):
                 total += 1
                 case_id = get_case_id(case_meta)
                 name = case_meta.get("name", f"case_{case_id}")
