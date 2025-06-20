@@ -17,23 +17,20 @@ def test_main_writes_files(tmp_path):
         {"id": 1, "url": "/case/1", "name": "Foo Case"},
         {"id": 2, "url": "/case/2", "name": "Bar Case"},
     ]
-    downloader.download.side_effect = [
-        {"id": 1, "download_url": "http://example.com/1.pdf"},
-        {"id": 2, "download_url": "http://example.com/2.pdf"},
+    downloader.download_opinions.side_effect = [
+        {"case_id": 1},
+        {"case_id": 2},
     ]
-    downloader.download_pdf.return_value = b"pdf"
     out_dir = tmp_path / "cases"
     main(["foo"], str(out_dir), searcher, downloader)
     for cid, name in [(1, "Foo Case"), (2, "Bar Case")]:
         safe = sanitize_filename(name)
-        path = out_dir / f"{safe}_{cid}.json"
+        path = out_dir / f"{safe}_{cid}_opinions.json"
         assert path.exists()
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
-            assert data == {"id": cid, "download_url": f"http://example.com/{cid}.pdf"}
-        pdf = out_dir / f"{safe}_{cid}.pdf"
-        assert pdf.exists()
-    assert downloader.download_pdf.call_count == 2
+            assert data == {"case_id": cid}
+    assert downloader.download_opinions.call_count == 2
 
 
 def test_main_handles_cluster_id(tmp_path):
@@ -42,24 +39,24 @@ def test_main_handles_cluster_id(tmp_path):
     searcher.search.return_value = [
         {"cluster_id": 42, "url": "/case/42", "name": "Cluster Case"},
     ]
-    downloader.download.return_value = {"cluster_id": 42, "download_url": "http://example.com/42.pdf"}
-    downloader.download_pdf.return_value = b"pdf"
+    downloader.download_opinions.return_value = {
+        "case_id": 42,
+        "cluster_id": 42,
+    }
     out_dir = tmp_path / "cases"
     main(["foo"], str(out_dir), searcher, downloader)
     safe = sanitize_filename("Cluster Case")
-    path = out_dir / f"{safe}_42.json"
+    path = out_dir / f"{safe}_42_opinions.json"
     assert path.exists()
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
-        assert data == {"cluster_id": 42, "download_url": "http://example.com/42.pdf"}
-    pdf = out_dir / f"{safe}_42.pdf"
-    assert pdf.exists()
-    downloader.download_pdf.assert_called_once()
+        assert data == {"case_id": 42, "cluster_id": 42}
+    downloader.download_opinions.assert_called_once()
 
 
 def test_cli_invokes_main(monkeypatch):
     called = {}
-    def fake_main(keywords, output, searcher, downloader, jurisdictions=None):
+    def fake_main(keywords, output, searcher, downloader, jurisdictions=None, start_date=None, end_date=None):
         called['keywords'] = keywords
         called['output'] = output
         called['jurisdictions'] = jurisdictions
