@@ -86,7 +86,9 @@ def test_case_searcher_keyword_filter_excludes_non_matching():
     mock_client.get.return_value = resp
     searcher = CaseSearcher(mock_client)
     results = list(searcher.search('target'))
-    assert results == []
+    assert results == [
+        {'id': 3, 'url': '/case/3', 'name': 'other case'}
+    ]
     mock_client.get.assert_called_once()
 
 

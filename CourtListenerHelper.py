@@ -107,7 +107,7 @@ class CaseSearcher:
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
     ) -> Generator[Dict, None, None]:
-        """Yield search results that contain ``keyword`` in the metadata or opinions."""
+        """Yield search results for ``keyword`` with optional filters."""
 
         path = "/search/"
         params = {
@@ -125,7 +125,6 @@ class CaseSearcher:
         if end_date:
             params["filed_before"] = end_date
 
-        keyword_lc = keyword.lower()
         next_url: Optional[str] = None
 
         while True:
@@ -134,16 +133,7 @@ class CaseSearcher:
             js = resp.json()
 
             for result in js.get("results", []):
-                text = f"{result.get('name', '')} {result.get('snippet', '')}".lower()
-                if keyword_lc in text:
-                    yield result
-                    continue
-
-                for op in result.get("opinions", []):
-                    op_text = f"{op.get('name', '')} {op.get('snippet', '')}".lower()
-                    if keyword_lc in op_text:
-                        yield result
-                        break
+                yield result
 
             next_url = js.get("next")
             if not next_url:
