@@ -1,5 +1,6 @@
 import os
 import threading
+import json
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 from typing import List, Optional
@@ -10,7 +11,6 @@ from CourtListenerHelper import (
     CaseDownloader,
     sanitize_filename,
     get_case_id,
-    get_case_url,
     API_BASE,
     TOKEN,
 )
@@ -100,89 +100,50 @@ class GuiApplication:
         self.log.configure(state="disabled")
         self.log.see(tk.END)
 
-    def download_cases(self, keywords, out_dir, courts, filed_after, filed_before):
-        for case_meta in self.searcher.search(
-            kw,
-            courts=courts,
-            filed_after=filed_after,
-            filed_before=filed_before,
-        ):
+    def download_cases(
+        self,
+        keywords: List[str],
+        out_dir: str,
+        courts: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> None:
         total = 0
         for kw in keywords:
             self.log_message(
-                f"Searching cases for '{kw}'" + (f" in {jurisdiction}" if jurisdiction else "") + " …"
+                f"Searching cases for '{kw}'" + (f" in {courts}" if courts else "") + " …"
             )
-            for case_meta in self.searcher.search(kw, courts=jurisdiction):
+            for case_meta in self.searcher.search(
+                kw,
+                courts=courts,
+                start_date=start_date,
+                end_date=end_date,
+            ):
                 total += 1
                 case_id = get_case_id(case_meta)
                 name = case_meta.get("name", f"case_{case_id}")
                 self.log_message(f"Processing '{name}' (ID: {case_id}) …")
-            
-                safe = sanitize_filename(name)
-            
-                # Save raw metadata JSON no matter what:
-                json_path = os.path.join(out_dir, f"{safe}_{case_id}.json")
-                try:
-                    with open(json_path, "w", encoding="utf-8") as f:
-                        import json
-                        json.dump(case_meta, f, indent=2)
-                except Exception as e:
-                    self.log_message(f"❌ Failed writing JSON for {case_id}: {e}")
-                    continue  # skip this case
-            
-                # Try to fetch full case details if URL exists
-                case_url = get_case_url(case_meta)
-                if not case_url:
-                    self.log_message(f"⚠️ No detailed URL for case {case_id}; saved metadata only")
-                    self.progress.step(1)
-                    continue
-            
-                try:
-                    res = self.downloader.download(case_url)
-                except Exception as e:
-                    self.log_message(f"❌ Error downloading case URL for {case_id}: {e}")
-                    self.progress.step(1)
-                    continue
-            
-                # Overwrite metadata with full response metadata
-                full_meta = res.get("metadata", {})
-                try:
-                    with open(json_path, "w", encoding="utf-8") as f:
-                        json.dump(full_meta, f, indent=2)
-                except Exception as e:
-                    self.log_message(f"❌ Failed overwriting JSON with full meta {case_id}: {e}")
 
-                # Optional: save opinions
-                opinions = res.get("opinions", [])
-                if opinions:
-                    ops_path = os.path.join(out_dir, f"{safe}_{case_id}_opinions.json")
-                    try:
-                        with open(ops_path, "w", encoding="utf-8") as fo:
-                            json.dump(opinions, fo, indent=2)
-                    except Exception as e:
-                        self.log_message(f"⚠️ Failed saving opinions for {case_id}: {e}")
-            
-                # Save PDF if any
-                pdf_bytes = res.get("pdf_bytes")
-                if pdf_bytes:
-                    try:
-                        pdf_path = os.path.join(out_dir, f"{safe}_{case_id}.pdf")
-                        if not os.path.exists(pdf_path):
-                            with open(pdf_path, "wb") as pf:
-                                pf.write(pdf_bytes)
-                            self.log_message(f"✅ PDF saved: {pdf_path}")
-                        else:
-                            self.log_message("→ PDF already exists, skipping")
-                    except Exception as e:
-                        self.log_message(f"⚠️ Failed saving PDF for {case_id}: {e}")
-                else:
-                    self.log_message("→ No PDF available for this case")
+                safe = sanitize_filename(name)
+                out_path = os.path.join(out_dir, f"{safe}_{case_id}_opinions.json")
+                if os.path.exists(out_path):
+                    self.log_message("→ File already exists, skipping")
+                    continue
+
+                try:
+                    data = self.downloader.download_opinions(case_meta)
+                    with open(out_path, "w", encoding="utf-8") as f:
+                        json.dump(data, f, indent=2)
+                except Exception as e:
+                    self.log_message(f"❌ Failed downloading {case_id}: {e}")
 
                 self.progress.step(1)
 
         metrics = self.client.get_metrics()
         self.log_message(f"🏁 Completed. Total cases processed: {total}")
-        self.log_message(f"API calls: {metrics['call_count']} | Bytes downloaded: {metrics['total_bytes']} | Time: {metrics['total_time']:.2f}s")
+        self.log_message(
+            f"API calls: {metrics['call_count']} | Bytes downloaded: {metrics['total_bytes']} | Time: {metrics['total_time']:.2f}s"
+        )
         self.start_button.config(state="normal")
 
 def run() -> None:

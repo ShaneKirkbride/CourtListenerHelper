@@ -11,6 +11,7 @@ the ``main`` function.
 """
 
 import argparse
+import json
 import requests
 import time
 import os
@@ -93,9 +94,9 @@ class ApiClient:
 
 
 class CaseSearcher:
-    """Uses search API to query cases by keyword with optional jurisdiction filter."""
+    """Uses search API to query cases by keyword with optional court/date filters."""
 
-    def __init__(self, client: ApiClient, page_size: int = 100):
+    def __init__(self, client: ApiClient, page_size: int = 100) -> None:
         self.client = client
         self.page_size = page_size
 
@@ -103,84 +104,75 @@ class CaseSearcher:
         self,
         keyword: str,
         courts: Optional[Union[str, List[str]]] = None,
-        filed_after: Optional[str] = None,
-        filed_before: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
     ) -> Generator[Dict, None, None]:
+        """Yield search results that contain ``keyword`` in the metadata or opinions."""
+
         path = "/search/"
         params = {
             "q": keyword,
             "type": "o",
-            "order_by": "score desc",
-            "stat_Published": "on",
-            "page_size": str(self.page_size),
+            "page_size": self.page_size,
         }
 
         if courts:
             params["court"] = (
                 ",".join(courts) if isinstance(courts, (list, tuple)) else courts
             )
-        if filed_after:
-            params["filed_after"] = filed_after  # format: MM/DD/YYYY
-        if filed_before:
-            params["filed_before"] = filed_before
+        if start_date:
+            params["filed_after"] = start_date
+        if end_date:
+            params["filed_before"] = end_date
 
-        next_url = None
+        keyword_lc = keyword.lower()
+        next_url: Optional[str] = None
+
         while True:
-            resp = self.client.get(next_url or path, params=params if not next_url else {})
+            resp = self.client.get(next_url or path, params={} if next_url else params)
             resp.raise_for_status()
             js = resp.json()
+
             for result in js.get("results", []):
-                yield result
+                text = f"{result.get('name', '')} {result.get('snippet', '')}".lower()
+                if keyword_lc in text:
+                    yield result
+                    continue
+
+                for op in result.get("opinions", []):
+                    op_text = f"{op.get('name', '')} {op.get('snippet', '')}".lower()
+                    if keyword_lc in op_text:
+                        yield result
+                        break
+
             next_url = js.get("next")
             if not next_url:
                 break
 
 
 class CaseDownloader:
-    """ Downloads full case details and PDF given a case URL or ID. """
+    """Downloads full opinion texts for a given case."""
 
-    def __init__(self, client: ApiClient):
+    def __init__(self, client: ApiClient) -> None:
         self.client = client
 
-    def download(self, case_url: str) -> Dict:
+    def download_opinions(self, case_meta: Dict) -> Dict:
+        """Return opinion texts for the case described by ``case_meta``."""
+
+        case_id = get_case_id(case_meta)
+        case_url = get_case_url(case_meta)
         resp = self.client.get(case_url)
-        resp.raise_for_status()
-        case = resp.json()
+        case_data = resp.json()
 
-        # Extract PDF bytes (same logic as before)
-        pdf_bytes = self._extract_pdf(case)
+        cluster_id = case_data.get("cluster_id")
+        opinions = self._fetch_opinions(cluster_id)
 
-        # Fetch opinions separately
-        opinions = []
-        try:
-            opinions = self._fetch_opinions(case.get("cluster_id"))
-        except HTTPError as e:
-            self.client.logger.warning(
-                f"Failed to fetch opinions for cluster {case.get('cluster_id')}: {e}"
-            )
-        
-        return {"metadata": case, "pdf_bytes": pdf_bytes, "opinions": opinions}
-
-    def _extract_pdf(self, case: Dict) -> Optional[bytes]:
-        pdf_url = case.get("download_url") or case.get("download_pdf")
-        if pdf_url:
-            try:
-                return self._download_pdf_bytes(pdf_url)
-            except:
-                pass
-
-        # Fallback to docket entries:
-        docket = case.get("docket")
-        docket_id = docket.get("id") if isinstance(docket, dict) else str(docket).split("/")[-1]
-        if docket_id:
-            for ent in self._get_docket_entries(docket_id):
-                file_url = ent.get("file", {}).get("url")
-                if file_url:
-                    try:
-                        return self._download_pdf_bytes(file_url)
-                    except:
-                        continue
-        return None
+        return {
+            "case_id": case_id,
+            "name": case_data.get("name"),
+            "cluster_id": cluster_id,
+            "opinions": opinions,
+        }
 
     def _fetch_opinions(self, cluster_id: int) -> List[Dict]:
         """
@@ -195,23 +187,21 @@ class CaseDownloader:
         params = {"cluster": cluster_id}
         resp = self.client.get(path, params=params)
         resp.raise_for_status()
-        opinions = resp.json().get("results", [])
-
-        opinion_texts = []
-        for op in opinions:
-            # fields may include xml_harvard, html_lawbox, plain_text
-            opinion_texts.append({
+        opinions = []
+        for op in resp.json().get("results", []):
+            opinions.append({
                 "id": op.get("id"),
                 "type": op.get("type"),
-                "xml": op.get("xml_harvard"),
-                "html": op.get("html_lawbox"),
                 "plain_text": op.get("plain_text"),
-                "download_url": op.get("download_url")
+                "html_lawbox": op.get("html_lawbox"),
+                "xml_harvard": op.get("xml_harvard"),
+                "download_url": op.get("download_url"),
             })
-        return opinion_texts
+        return opinions
 
     def _get_docket_entries(self, docket_id: str) -> list:
         """Return list of docket entries by docket ID, not full URL."""
+        # Method retained for backwards compatibility but no longer used.
         path = f"/dockets/{docket_id}/entries/"
         resp = self.client.get(path)
         resp.raise_for_status()
@@ -219,6 +209,7 @@ class CaseDownloader:
 
     def _download_pdf_bytes(self, pdf_url: str) -> bytes:
         """Use client to fetch PDF bytes via GET."""
+        # Method retained for backwards compatibility but no longer used.
         resp = self.client.get(pdf_url, stream=True)
         resp.raise_for_status()
         return resp.content
@@ -360,6 +351,8 @@ def main(
     searcher: Optional[CaseSearcher] = None,
     downloader: Optional[CaseDownloader] = None,
     jurisdictions: Optional[Union[str, Iterable[str]]] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
 ):
     """Download all cases matching ``keywords`` into ``out_dir``.
 
@@ -384,30 +377,25 @@ def main(
 
     for keyword in keywords:
         logger.info("\U0001F50D Searching cases for '%s' …", keyword)
-        # Iterate over all pages of search results
-        for case_meta in searcher.search(keyword, jurisdictions=jurisdictions):
+        for case_meta in searcher.search(
+            keyword,
+            courts=jurisdictions,
+            start_date=start_date,
+            end_date=end_date,
+        ):
             case_id = get_case_id(case_meta)
-            case_url = get_case_url(case_meta)
-            case_name = case_meta.get("name", f"case_{case_id}")
-            safe_name = sanitize_filename(case_name)
-            filename = os.path.join(out_dir, f"{safe_name}_{case_id}.json")
-            if os.path.exists(filename):
-                # Avoid re-downloading cases we already saved
-                logger.info("\u2705 Skipping existing %s", filename)
+            safe_name = sanitize_filename(case_meta.get("name", f"case_{case_id}"))
+            out_file = os.path.join(out_dir, f"{safe_name}_{case_id}_opinions.json")
+
+            if os.path.exists(out_file):
+                logger.info("\u2705 Skipping existing %s", out_file)
                 continue
-            logger.info("\u2B07\uFE0F  Downloading case '%s' …", case_name)
-            full_case = downloader.download(case_url)
-            with open(filename, "w", encoding="utf-8") as f:
-                import json
-                json.dump(full_case, f, indent=2)
-            pdf_url = full_case.get("download_url")
-            if pdf_url:
-                pdf_path = os.path.join(out_dir, f"{safe_name}_{case_id}.pdf")
-                if not os.path.exists(pdf_path):
-                    pdf_bytes = downloader.download_pdf(pdf_url)
-                    with open(pdf_path, "wb") as pf:
-                        pf.write(pdf_bytes)
-            # Slight delay to avoid hitting API rate limits aggressively
+
+            logger.info("\u2B07\uFE0F  Downloading case '%s' …", case_meta.get("name"))
+            data = downloader.download_opinions(case_meta)
+            with open(out_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+
             time.sleep(0.1)
 
 

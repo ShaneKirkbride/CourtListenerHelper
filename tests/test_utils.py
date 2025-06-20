@@ -97,9 +97,9 @@ def test_case_searcher_accepts_jurisdiction_list():
     resp.content = b'{}'
     mock_client.get.return_value = resp
     searcher = CaseSearcher(mock_client)
-    list(searcher.search('foo', jurisdictions=['a', 'b']))
+    list(searcher.search('foo', courts=['a', 'b']))
     args, kwargs = mock_client.get.call_args
-    assert kwargs['params']['case__court__jurisdictions'] == 'a,b'
+    assert kwargs['params']['court'] == 'a,b'
 
 
 def test_api_client_retry(monkeypatch):
@@ -122,17 +122,17 @@ def test_api_client_retry(monkeypatch):
 def test_case_downloader_download():
     mock_client = MagicMock()
     response = MagicMock()
-    response.json.return_value = {'foo': 'bar'}
+    response.json.return_value = {'name': 'n', 'cluster_id': 1}
     response.content = b'{}'
     mock_client.get.return_value = response
     downloader = CaseDownloader(mock_client)
-    downloader._extract_pdf = MagicMock(return_value=None)
-    downloader._fetch_opinions = MagicMock(return_value=[])
-    result = downloader.download('/case/1')
+    downloader._fetch_opinions = MagicMock(return_value=[{'id': 1}])
+    result = downloader.download_opinions({'id': 1, 'url': '/case/1'})
     assert result == {
-        'metadata': {'foo': 'bar'},
-        'pdf_bytes': None,
-        'opinions': []
+        'case_id': '1',
+        'name': 'n',
+        'cluster_id': 1,
+        'opinions': [{'id': 1}],
     }
     mock_client.get.assert_called_with('/case/1')
 
@@ -140,18 +140,18 @@ def test_case_downloader_download():
 def test_case_downloader_absolute_url():
     mock_client = MagicMock()
     response = MagicMock()
-    response.json.return_value = {'foo': 'bar'}
+    response.json.return_value = {'name': 'n', 'cluster_id': 5}
     response.content = b'{}'
     mock_client.get.return_value = response
     downloader = CaseDownloader(mock_client)
-    downloader._extract_pdf = MagicMock(return_value=None)
     downloader._fetch_opinions = MagicMock(return_value=[])
     url = 'https://example.com/api/case/1'
-    result = downloader.download(url)
+    result = downloader.download_opinions({'id': 1, 'url': url})
     assert result == {
-        'metadata': {'foo': 'bar'},
-        'pdf_bytes': None,
-        'opinions': []
+        'case_id': '1',
+        'name': 'n',
+        'cluster_id': 5,
+        'opinions': [],
     }
     mock_client.get.assert_called_with(url)
 
@@ -222,21 +222,18 @@ def test_gui_download_cases_handles_cluster_id(tmp_path):
     dummy.searcher.search.return_value = [
         {"cluster_id": 99, "url": "/case/99", "name": "Cluster Case"}
     ]
-    dummy.downloader.download.return_value = {
-        "metadata": {"cluster_id": 99, "download_url": "http://example.com/99.pdf"},
-        "pdf_bytes": b"pdf",
+    dummy.downloader.download_opinions.return_value = {
+        "case_id": 99,
+        "cluster_id": 99,
         "opinions": [],
     }
-    dummy.downloader.download_pdf.return_value = b"pdf"
 
     out_dir = tmp_path / "cases"
     out_dir.mkdir()
     GuiApplication.download_cases(dummy, ["kw"], str(out_dir))
 
-    expected_json = out_dir / "Cluster Case_99.json"
+    expected_json = out_dir / "Cluster Case_99_opinions.json"
     assert expected_json.exists()
-    expected_pdf = out_dir / "Cluster Case_99.pdf"
-    assert expected_pdf.exists()
 
 
 def test_recap_downloader_get_entries_filters():
