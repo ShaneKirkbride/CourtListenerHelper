@@ -332,6 +332,44 @@ def sanitize_filename(name: str) -> str:
     return "".join(c if c.isalnum() or c in " _-" else "_" for c in name)
 
 
+def download_from_metadata(
+    metas: Iterable[Dict],
+    out_dir: str = "cases",
+    downloader: Optional[CaseDownloader] = None,
+) -> None:
+    """Download a collection of cases described by ``metas``.
+
+    Each item in ``metas`` should be a dictionary containing at least one of
+    the identifier fields recognised by :func:`get_case_id`.  The function
+    will create ``out_dir`` if necessary and write one ``*_opinions.json``
+    file per case.
+    """
+
+    os.makedirs(out_dir, exist_ok=True)
+    if downloader is None:
+        client = ApiClient(API_BASE, TOKEN)
+        downloader = CaseDownloader(client)
+
+    for meta in metas:
+        case_id = get_case_id(meta)
+        name = meta.get("name") or meta.get("caseName") or meta.get("caseNameFull")
+        if not name:
+            name = f"case_{case_id}"
+        safe_name = sanitize_filename(name)
+        out_file = os.path.join(out_dir, f"{safe_name}_{case_id}_opinions.json")
+
+        if os.path.exists(out_file):
+            logger.info("\u2705 Skipping existing %s", out_file)
+            continue
+
+        logger.info("\u2B07\uFE0F  Downloading case '%s' …", name)
+        data = downloader.download_opinions(meta)
+        with open(out_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+
+        time.sleep(0.1)
+
+
 # === Example Use ===
 
 def main(

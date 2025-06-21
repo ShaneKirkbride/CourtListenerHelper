@@ -6,6 +6,7 @@ from CourtListenerHelper import (
     ApiClient,
     CaseSearcher,
     CaseDownloader,
+    download_from_metadata,
     sanitize_filename,
 )
 import os
@@ -71,3 +72,18 @@ def test_cli_invokes_main(monkeypatch):
     assert called['output'] == 'dest'
     assert called['jurisdictions'] == ['colo', 'circtdco']
     assert all(called['types'])
+
+
+def test_download_from_metadata(tmp_path):
+    downloader = MagicMock()
+    downloader.download_opinions.side_effect = [
+        {"case_id": "1"},
+        {"case_id": "2"},
+    ]
+    meta1 = {"id": 1, "url": "/case/1", "name": "Foo"}
+    meta2 = {"cluster_id": 2, "absolute_url": "/opinion/2/bar", "caseName": "Bar"}
+    download_from_metadata([meta1, meta2], str(tmp_path), downloader)
+
+    assert (tmp_path / "Foo_1_opinions.json").exists()
+    assert (tmp_path / "Bar_2_opinions.json").exists()
+    assert downloader.download_opinions.call_count == 2
