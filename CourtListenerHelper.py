@@ -141,7 +141,7 @@ class CaseSearcher:
 
 
 class CaseDownloader:
-    """Downloads full opinion texts for a given case."""
+    """Downloads full opinion texts for a given case including sub-opinions."""
 
     def __init__(self, client: ApiClient) -> None:
         self.client = client
@@ -163,10 +163,37 @@ class CaseDownloader:
             "opinions": opinions,
         }
 
+    def _extract_opinion_fields(self, meta: Dict) -> Dict:
+        """Return a subset of opinion fields used by this helper."""
+
+        return {
+            "id": meta.get("id"),
+            "type": meta.get("type"),
+            "plain_text": meta.get("plain_text"),
+            "html_lawbox": meta.get("html_lawbox"),
+            "xml_harvard": meta.get("xml_harvard"),
+            "download_url": meta.get("download_url"),
+        }
+
+    def _fetch_sub_opinions(self, urls: Iterable[str]) -> List[Dict]:
+        """Return metadata for each sub-opinion URL."""
+
+        data = []
+        for url in urls:
+            try:
+                resp = self.client.get(url)
+                resp.raise_for_status()
+                data.append(self._extract_opinion_fields(resp.json()))
+            except Exception as exc:  # pragma: no cover - log only
+                logger.error("Failed fetching sub opinion %s: %s", url, exc)
+        return data
+
     def _fetch_opinions(self, cluster_id: int) -> List[Dict]:
         """
-        Return list of opinions with full text fields:
-        xml_harvard, html_lawbox, plain_text.
+        Return list of opinions with full text fields (``xml_harvard``,
+        ``html_lawbox``, ``plain_text``). If an opinion contains
+        ``sub_opinions`` links they are fetched and included as
+        additional opinion dictionaries under the ``sub_opinions`` key.
         """
         if not cluster_id:
             return []
@@ -178,14 +205,11 @@ class CaseDownloader:
         resp.raise_for_status()
         opinions = []
         for op in resp.json().get("results", []):
-            opinions.append({
-                "id": op.get("id"),
-                "type": op.get("type"),
-                "plain_text": op.get("plain_text"),
-                "html_lawbox": op.get("html_lawbox"),
-                "xml_harvard": op.get("xml_harvard"),
-                "download_url": op.get("download_url"),
-            })
+            data = self._extract_opinion_fields(op)
+            sub_urls = op.get("sub_opinions") or []
+            if sub_urls:
+                data["sub_opinions"] = self._fetch_sub_opinions(sub_urls)
+            opinions.append(data)
         return opinions
 
     def _get_docket_entries(self, docket_id: str) -> list:
