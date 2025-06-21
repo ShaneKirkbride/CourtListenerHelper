@@ -154,7 +154,10 @@ class CaseDownloader:
         resp = self.client.get(case_url)
         full_meta = resp.json()
 
-        cluster_id = full_meta.get("cluster_id")
+        # Some cluster detail responses omit ``cluster_id`` and only include
+        # ``id``. Fall back to the ``id`` field so opinions can still be
+        # retrieved for such cases.
+        cluster_id = full_meta.get("cluster_id") or full_meta.get("id")
         opinions = self._fetch_opinions(cluster_id)
 
         return {

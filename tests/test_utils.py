@@ -156,6 +156,25 @@ def test_case_downloader_absolute_url():
     mock_client.get.assert_called_with(url)
 
 
+def test_case_downloader_missing_cluster_id_uses_id():
+    """download_opinions should fall back to 'id' when 'cluster_id' is absent."""
+    mock_client = MagicMock()
+    response = MagicMock()
+    response.json.return_value = {'name': 'n', 'id': 7}
+    response.content = b'{}'
+    mock_client.get.return_value = response
+    downloader = CaseDownloader(mock_client)
+    downloader._fetch_opinions = MagicMock(return_value=[])
+    result = downloader.download_opinions({'id': 7, 'url': '/case/7'})
+
+    assert result == {
+        'case_id': '7',
+        'case_meta': {'name': 'n', 'id': 7},
+        'opinions': [],
+    }
+    downloader._fetch_opinions.assert_called_with(7)
+
+
 def test_fetch_opinions_fetches_sub_opinions():
     client = MagicMock()
     main_resp = MagicMock()
