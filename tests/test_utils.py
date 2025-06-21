@@ -156,6 +156,39 @@ def test_case_downloader_absolute_url():
     mock_client.get.assert_called_with(url)
 
 
+def test_fetch_opinions_fetches_sub_opinions():
+    client = MagicMock()
+    main_resp = MagicMock()
+    main_resp.json.return_value = {
+        'results': [
+            {
+                'id': 1,
+                'type': 'major',
+                'plain_text': 'main',
+                'sub_opinions': ['http://sub1', 'http://sub2'],
+            }
+        ]
+    }
+    main_resp.content = b'{}'
+    sub1 = MagicMock()
+    sub1.json.return_value = {'id': 2, 'type': 'sub', 'plain_text': 's1'}
+    sub1.content = b'{}'
+    sub2 = MagicMock()
+    sub2.json.return_value = {'id': 3, 'type': 'sub', 'plain_text': 's2'}
+    sub2.content = b'{}'
+    client.get.side_effect = [main_resp, sub1, sub2]
+
+    downloader = CaseDownloader(client)
+    data = downloader._fetch_opinions(10)
+
+    assert len(data) == 1
+    assert len(data[0]['sub_opinions']) == 2
+    assert data[0]['sub_opinions'][0]['id'] == 2
+    assert data[0]['sub_opinions'][1]['id'] == 3
+    assert client.get.call_args_list[1][0][0] == 'http://sub1'
+    assert client.get.call_args_list[2][0][0] == 'http://sub2'
+
+
 def test_api_client_absolute_path(monkeypatch):
     called = {}
 

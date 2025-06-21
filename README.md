@@ -10,6 +10,7 @@ front ends.
 
 - Search the CourtListener API by keyword
 - Download full case metadata in JSON format
+- Download any sub-opinion JSON referenced by an opinion
 - Download the associated opinion PDF when available
 - Retrieve docket PDFs via the RECAP system
 - Command line and graphical interfaces
